@@ -1687,17 +1687,43 @@ pub const ChannelLayout = extern struct {
 
     /// Initialize a native channel layout from a bitmask indicating which
     /// channels are present.
-    ///
-    /// Asserts the mask values are valid.
-    pub fn fromMask(
+    pub fn setMask(
         /// The layout structure to be initialized.
         channel_layout: *ChannelLayout,
         /// Bitmask describing the channel layout.
         mask: u64,
-    ) void {
-        _ = wrap(av_channel_layout_from_mask(channel_layout, mask)) catch unreachable;
+    ) error{FFmpegInvalid}!void {
+        if (av_channel_layout_from_mask(channel_layout, mask) != 0) {
+            return error.FFmpegInvalid;
+        }
     }
     extern fn av_channel_layout_from_mask(channel_layout: *ChannelLayout, mask: u64) c_int;
+
+    /// Initialize a native channel layout from a bitmask indicating which
+    /// channels are present.
+    pub fn fromMask(mask: u64) error{FFmpegInvalid}!ChannelLayout {
+        var channel_layout: ChannelLayout = undefined;
+        try channel_layout.setMask(mask);
+        return channel_layout;
+    }
+
+    /// Set to the default channel layout for a given number of channels.
+    pub fn setDefault(
+        /// The layout structure to be initialized.
+        ch_layout: *ChannelLayout,
+        /// The number of channels.
+        nb_channels: c_uint,
+    ) void {
+        av_channel_layout_default(ch_layout, nb_channels);
+    }
+    extern fn av_channel_layout_default(channel_layout: *ChannelLayout, nb_channels: c_uint) void;
+
+    /// Get the default channel layout for a given number of channels.
+    pub fn default(nb_channels: c_uint) ChannelLayout {
+        var ch_layout: ChannelLayout = undefined;
+        ch_layout.setDefault(nb_channels);
+        return ch_layout;
+    }
 };
 
 pub const BufferRef = extern struct {
