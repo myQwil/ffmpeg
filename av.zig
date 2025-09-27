@@ -731,6 +731,48 @@ pub const FormatContext = extern struct {
     }
     extern fn av_read_frame(s: *FormatContext, pkt: *Packet) c_int;
 
+    pub const SeekFlags = packed struct(c_int) {
+        /// this flag is ignored.
+        backward: bool = false,
+        /// all timestamps are in bytes and are the file position
+        /// (this may not be supported by all demuxers).
+        byte: bool = false,
+        /// non-keyframes are treated as keyframes
+        /// (this may not be supported by all demuxers).
+        any: bool = false,
+        /// all timestamps are in frames
+        /// in the stream with stream_index (this may not be supported by all demuxers).
+        /// Otherwise all timestamps are in units of the stream selected by stream_index
+        /// or if stream_index is -1, in AV_TIME_BASE units.
+        frame: bool = false,
+        unused: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 4 } }) = 0,
+    };
+
+    /// Seek to timestamp ts.
+    ///
+    /// Seeking will be done so that the point from which all active streams
+    /// can be presented successfully will be closest to ts and within min/max_ts.
+    /// Active streams are all streams that have AVStream.discard < AVDISCARD_ALL.
+    ///
+    /// note: This is part of the new seek API which is still under construction.
+    pub fn seekFile(
+        /// media file handle
+        ic: *FormatContext,
+        /// index of the stream which is used as time base reference
+        stream_index: c_int,
+        /// smallest acceptable timestamp
+        min_ts: i64,
+        /// target timestamp
+        ts: i64,
+        /// largest acceptable timestamp
+        max_ts: i64,
+        /// direction and seeking mode
+        flags: SeekFlags,
+    ) Error!void {
+        _ = try wrap(avformat_seek_file(ic, stream_index, min_ts, ts, max_ts, @bitCast(flags)));
+    }
+    extern fn avformat_seek_file(ic: *FormatContext, stream_index: c_int, min_ts: i64, ts: i64, max_ts: i64, flags: c_int) c_int;
+
     /// Seek to the keyframe at timestamp in the specified stream.
     pub fn seekFrame(
         /// media file handle
@@ -743,9 +785,9 @@ pub const FormatContext = extern struct {
         /// AV_TIME_BASE units.
         timestamp: i64,
         /// select direction and seeking mode
-        flags: c_int,
+        flags: SeekFlags,
     ) Error!void {
-        _ = try wrap(av_seek_frame(s, stream_index, timestamp, flags));
+        _ = try wrap(av_seek_frame(s, stream_index, timestamp, @bitCast(flags)));
     }
     extern fn av_seek_frame(s: *FormatContext, stream_index: c_int, timestamp: i64, flags: c_int) c_int;
 
