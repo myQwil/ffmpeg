@@ -2818,6 +2818,17 @@ pub const Codec = extern struct {
         ///
         pub const flushBuffers = avcodec_flush_buffers;
         extern fn avcodec_flush_buffers(avctx: *Codec.Context) void;
+
+        pub fn decodeSubtitle(
+            avctx: *Context,
+            sub: *Subtitle,
+            avpkt: *Packet
+        ) Error!bool {
+            var got_sub_ptr: c_int = 0;
+            _ = try wrap(avcodec_decode_subtitle2(avctx, sub, &got_sub_ptr, avpkt));
+            return (got_sub_ptr != 0);
+        }
+        extern fn avcodec_decode_subtitle2(*Codec.Context, *Subtitle, *c_int, *Packet) c_int;
     };
 
     name: [*:0]const u8,
@@ -3103,6 +3114,38 @@ pub const HWAccel = extern struct {
     id: Codec.ID,
     pix_fmt: PixelFormat,
     capabilities: c_int,
+};
+
+pub const Subtitle = extern struct {
+    format: u16, // 0 = graphics
+    start_display_time: u32, // relative to packet pts, in ms
+    end_display_time: u32, // relative to packet pts, in ms
+    num_rects: c_uint,
+    rects: [*c][*c]Rect,
+    /// Same as packet pts, in AV_TIME_BASE
+    pts: i64,
+
+    pub const Rect = extern struct {
+        x: c_int,
+        y: c_int,
+        w: c_int,
+        h: c_int,
+        nb_colors: c_int,
+        data: [4][*c]u8,
+        linesize: [4]c_int,
+        flags: c_int,
+        type: Type,
+        text: [*c]u8,
+        ass: [*c]u8,
+    };
+
+    pub const Type = enum(c_uint) {
+        none,
+        /// A bitmap, pict will be set
+        bitmap,
+        text,
+        ass,
+    };
 };
 
 pub const FilterGraph = extern struct {
