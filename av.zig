@@ -2450,6 +2450,8 @@ pub const Codec = extern struct {
         pub const first_audio: ID = .pcm_s16le;
         pub const first_subtitle: ID = .dvd_subtitle;
         pub const first_unknown: ID = .ttf;
+
+        pub const decoder = Codec.findDecoder;
     };
 
     pub const Descriptor = extern struct {
@@ -2650,6 +2652,10 @@ pub const Codec = extern struct {
         decoded_side_data: ?[*]*FrameSideData,
         nb_decoded_side_data: c_int,
 
+        /// Allocate an `AVCodecContext` and set its fields to default values. The
+        /// resulting struct should be freed with avcodec_free_context().
+        ///
+        /// Returns an `AVCodecContext` filled with default values or null on failure.
         pub fn alloc(codec: *const Codec) error{OutOfMemory}!*Context {
             return avcodec_alloc_context3(codec) orelse return error.OutOfMemory;
         }
@@ -2673,10 +2679,61 @@ pub const Codec = extern struct {
         }
         extern fn avcodec_parameters_to_context(codec: *Codec.Context, par: *const Codec.Parameters) c_int;
 
-        pub fn open(cc: *Context, codec: *const Codec, options: ?*Dictionary.Mutable) Error!void {
-            _ = try wrap(avcodec_open2(cc, codec, options));
+        /// Initialize the `AVCodecContext` to use the given `AVCodec`. Prior to using this
+        /// function the context has to be allocated with `avcodec_alloc_context3()`.
+        ///
+        /// The functions `avcodec_find_decoder_by_name()`, `avcodec_find_encoder_by_name()`,
+        /// `avcodec_find_decoder()` and `avcodec_find_encoder()` provide an easy way for
+        /// retrieving a codec.
+        ///
+        /// Depending on the codec, you might need to set options in the codec context
+        /// also for decoding (e.g. width, height, or the pixel or audio sample format in
+        /// the case the information is not available in the bitstream, as when decoding
+        /// raw audio or video).
+        ///
+        /// Options in the codec context can be set either by setting them in the options
+        /// AVDictionary, or by setting the values in the context itself, directly or by
+        /// using the av_opt_set() API before calling this function.
+        ///
+        /// Example:
+        /// ```
+        /// try opts.set("b", "2.5M", .{});
+        /// context = try init(try av.Codec.ID.h264.decoder());
+        /// errdefer context.deinit();
+        /// try context.open(null, opts);
+        /// ```
+        ///
+        /// In the case `AVCodecParameters` are available (e.g. when demuxing a stream
+        /// using libavformat, and accessing the `AVStream` contained in the demuxer), the
+        /// codec parameters can be copied to the codec context using
+        /// `avcodec_parameters_to_context()`, as in the following example:
+        ///
+        /// ```
+        /// const stream: *Stream = ...;
+        /// context = try init(codec);
+        /// try context.setParameters(stream.codecpar);
+        /// try context.open(codec, null);
+        /// ```
+        ///
+        /// @note Always call this function before using decoding routines (such as
+        /// `avcodec_receive_frame()`).
+        pub fn open(
+            /// The context to initialize.
+            avctx: *Context,
+            /// The codec to open this context for. If a non-null codec has been
+            /// previously passed to `avcodec_alloc_context3()` or
+            /// for this context, then this parameter MUST be either null or
+            /// equal to the previously passed codec.
+            codec: ?*const Codec,
+            /// A dictionary filled with `AVCodecContext` and codec-private
+            /// options, which are set on top of the options already set in
+            /// `avctx`, can be null. On return this object will be filled with
+            /// options that were not found in the `avctx` codec context.
+            options: ?*Dictionary.Mutable,
+        ) Error!void {
+            _ = try wrap(avcodec_open2(avctx, codec, options));
         }
-        extern fn avcodec_open2(avctx: *Codec.Context, codec: *const Codec, options: ?*Dictionary.Mutable) c_int;
+        extern fn avcodec_open2(avctx: *Codec.Context, codec: ?*const Codec, options: ?*Dictionary.Mutable) c_int;
 
         /// Supply raw packet data as input to a decoder.
         ///
