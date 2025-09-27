@@ -3797,3 +3797,72 @@ pub const sws = struct {
         extern fn sws_scale_frame(c: *sws.Context, dst: *Frame, src: *const Frame) c_int;
     };
 };
+
+pub const SwrContext = opaque {
+    pub fn alloc() error{OutOfMemory}!*SwrContext {
+        return swr_alloc() orelse return error.OutOfMemory;
+    }
+    extern fn swr_alloc() ?*SwrContext;
+
+    pub fn deinit(s: *SwrContext) void {
+        var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*SwrContext = s;
+        swr_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+    }
+    extern fn swr_free(*?*SwrContext) void;
+
+    pub fn init(
+        out_ch_layout: *const ChannelLayout, out_sample_fmt: SampleFormat, out_sample_rate: c_uint,
+        in_ch_layout: *const ChannelLayout, in_sample_fmt: SampleFormat, in_sample_rate: c_uint,
+        log_offset: c_int, log_ctx: ?*anyopaque,
+    ) Error!*SwrContext {
+        var ps: ?*SwrContext = try alloc();
+        _ = try wrap(swr_alloc_set_opts2(&ps,
+            out_ch_layout, out_sample_fmt, out_sample_rate,
+            in_ch_layout, in_sample_fmt, in_sample_rate,
+            log_offset, log_ctx,
+        ));
+        const swr = ps.?;
+        errdefer swr.deinit();
+
+        _ = try wrap(swr_init(swr));
+        return swr;
+    }
+    extern fn swr_alloc_set_opts2(
+        *?*SwrContext,
+        *const ChannelLayout, SampleFormat, c_uint,
+        *const ChannelLayout, SampleFormat, c_uint,
+        c_int, ?*anyopaque,
+    ) c_int;
+    extern fn swr_init(s: *SwrContext) c_int;
+
+
+    /// Convert audio.
+    ///
+    /// If more input is provided than output space, then the input will be buffered.
+    /// You can avoid this buffering by using swr_get_out_samples() to retrieve an
+    /// upper bound on the required number of output samples for the given number of
+    /// input samples. Conversion will run directly without copying whenever possible.
+    ///
+    /// Returns the number of samples output per channel
+    pub fn convert(
+        /// allocated Swr context, with parameters set
+        s: *SwrContext,
+        /// output buffers, only the first one need be set in case of packed audio
+        out: *const [*]u8,
+        /// amount of space available for output in samples per channel
+        out_count: c_uint,
+        /// input buffers, only the first one need to be set in case of packed audio.
+        ///
+        /// set to `null` to flush the last few samples out at the end.
+        in: ?*const [*]const u8,
+        /// number of input samples available in one channel
+        in_count: c_uint,
+    ) Error!c_uint {
+        return wrap(swr_convert(s, out, out_count, in, in_count));
+    }
+    extern fn swr_convert(
+        *SwrContext,
+        *const [*]u8, c_uint,
+        ?*const [*]const u8, c_uint,
+    ) c_int;
+};
