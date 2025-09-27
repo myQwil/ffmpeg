@@ -27,7 +27,7 @@ pub const Log = enum(c_int) {
     debug = 48,
     trace = 56,
 
-    pub fn set_level(level: Log) void {
+    pub fn setLevel(level: Log) void {
         av_log_set_level(level);
     }
     extern fn av_log_set_level(level: Log) void;
@@ -554,7 +554,7 @@ pub const FormatContext = extern struct {
     /// This is a place for some private data of the user.
     @"opaque": ?*anyopaque,
     /// Callback used by devices to communicate with application.
-    control_message_cb: av_format_control_message,
+    control_message_cb: FormatControlMessage,
     /// Output timestamp offset, in microseconds.
     /// Muxing: set by user
     output_ts_offset: i64,
@@ -608,7 +608,7 @@ pub const FormatContext = extern struct {
     ///
     /// The codecs are not opened. The stream must be closed with
     /// `close_input`.
-    pub fn open_input(
+    pub fn openInput(
         /// URL of the stream to open.
         url: [*:0]const u8,
         /// If non-NULL, this parameter forces a specific input format.
@@ -631,7 +631,7 @@ pub const FormatContext = extern struct {
     extern fn avformat_open_input(ps: *?*FormatContext, url: [*:0]const u8, fmt: ?*const InputFormat, options: ?*Dictionary.Mutable) c_int;
 
     /// Close an opened input `FormatContext`. Free it and all its contents.
-    pub fn close_input(s: *FormatContext) void {
+    pub fn closeInput(s: *FormatContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*FormatContext = s;
         avformat_close_input(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
     }
@@ -651,7 +651,7 @@ pub const FormatContext = extern struct {
     ///
     /// Does not let the user decide somehow what information is needed;
     /// sometimes wastes time getting stuff the user does not need.
-    pub fn find_stream_info(
+    pub fn findStreamInfo(
         ic: *FormatContext,
         /// If non-NULL, an ic.nb_streams long array of pointers to
         /// dictionaries, where i-th member contains options for codec
@@ -677,7 +677,7 @@ pub const FormatContext = extern struct {
     /// AVERROR_STREAM_NOT_FOUND if no stream with the requested type could be
     /// found, AVERROR_DECODER_NOT_FOUND if streams were found but no decoder
     ///
-    pub fn find_best_stream(
+    pub fn findBestStream(
         ic: *FormatContext,
         /// stream type: video, audio, subtitles, etc.
         media_type: MediaType,
@@ -726,13 +726,13 @@ pub const FormatContext = extern struct {
     ///
     /// `pkt` will be initialized, so it may be uninitialized, but it must not
     /// contain data that needs to be freed.
-    pub fn read_frame(s: *FormatContext, pkt: *Packet) Error!void {
+    pub fn readFrame(s: *FormatContext, pkt: *Packet) Error!void {
         _ = try wrap(av_read_frame(s, pkt));
     }
     extern fn av_read_frame(s: *FormatContext, pkt: *Packet) c_int;
 
     /// Seek to the keyframe at timestamp in the specified stream.
-    pub fn seek_frame(
+    pub fn seekFrame(
         /// media file handle
         s: *FormatContext,
         /// If stream_index is (-1), a default stream is selected, and
@@ -777,7 +777,7 @@ pub const FormatContext = extern struct {
 pub const Class = extern struct {
     class_name: [*c]const u8,
     item_name: ?*const fn (?*anyopaque) callconv(.c) [*c]const u8,
-    option: ?*const Option_6,
+    option: ?*const Option,
     version: c_int,
     log_level_offset_offset: c_int,
     parent_log_context_offset: c_int,
@@ -786,6 +786,8 @@ pub const Class = extern struct {
     query_ranges: ?*const fn ([*c]?*OptionRanges, ?*anyopaque, [*c]const u8, c_int) callconv(.c) c_int,
     child_next: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque,
     child_class_iterate: ?*const fn ([*c]?*anyopaque) callconv(.c) [*c]const Class,
+
+    pub const Option = opaque {};
 };
 
 pub const InputFormat = extern struct {
@@ -1064,7 +1066,7 @@ pub const Dictionary = opaque {
         ///
         /// Adding a new entry to a dictionary invalidates all existing entries
         /// previously returned with get() or iterate().
-        pub fn set_int(dict: *Mutable, key: [*:0]const u8, value: i64, flags: Flags) error{OutOfMemory}!void {
+        pub fn setInt(dict: *Mutable, key: [*:0]const u8, value: i64, flags: Flags) error{OutOfMemory}!void {
             _ = wrap(av_dict_set_int(dict, key, value, flags)) catch |err| switch (err) {
                 error.FFmpegInvalid => unreachable, // Zig prevents this by not making `key` nullable.
                 error.OutOfMemory => |e| return e,
@@ -1128,9 +1130,7 @@ pub const DurationEstimationMethod = enum(c_uint) {
     bitrate = 2,
 };
 
-pub const av_format_control_message = ?*const fn ([*c]FormatContext, c_int, ?*anyopaque, usize) callconv(.c) c_int;
-
-pub const Option_6 = opaque {};
+pub const FormatControlMessage = ?*const fn ([*c]FormatContext, c_int, ?*anyopaque, usize) callconv(.c) c_int;
 
 pub const ClassCategory = enum(c_uint) {
     na = 0,
@@ -1500,18 +1500,18 @@ pub const SampleFormat = enum(c_int) {
     s64p = 11,
 
     /// Return the name of sample_fmt, or NULL if sample_fmt is not recognized.
-    pub const get_name = av_get_sample_fmt_name;
+    pub const getName = av_get_sample_fmt_name;
     extern fn av_get_sample_fmt_name(sample_fmt: SampleFormat) ?[*:0]const u8;
 
     /// Return number of bytes per sample, or zero if unknown.
-    pub const get_bytes_per_sample = av_get_bytes_per_sample;
+    pub const getBytesPerSample = av_get_bytes_per_sample;
     extern fn av_get_bytes_per_sample(sample_fmt: SampleFormat) c_int;
 
     /// Check if the sample format is planar.
     ///
     /// @param sample_fmt the sample format to inspect
     /// @return 1 if the sample format is planar, 0 if it is interleaved
-    pub fn is_planar(sample_fmt: SampleFormat) bool {
+    pub fn isPlanar(sample_fmt: SampleFormat) bool {
         return av_sample_fmt_is_planar(sample_fmt) != 0;
     }
     extern fn av_sample_fmt_is_planar(sample_fmt: SampleFormat) c_int;
@@ -1647,7 +1647,7 @@ pub const ChannelLayout = extern struct {
     /// channels are present.
     ///
     /// Asserts the mask values are valid.
-    pub fn from_mask(
+    pub fn fromMask(
         /// The layout structure to be initialized.
         channel_layout: *ChannelLayout,
         /// Bitmask describing the channel layout.
@@ -2600,7 +2600,7 @@ pub const Codec = extern struct {
         /// are freed and replaced with duplicates of the corresponding field in
         /// par. Fields in codec that do not have a counterpart in par are not
         /// touched.
-        pub fn parameters_to_context(codec: *Context, par: *const Codec.Parameters) Error!void {
+        pub fn parametersToContext(codec: *Context, par: *const Codec.Parameters) Error!void {
             _ = try wrap(avcodec_parameters_to_context(codec, par));
         }
         extern fn avcodec_parameters_to_context(codec: *Codec.Context, par: *const Codec.Parameters) c_int;
@@ -2630,7 +2630,7 @@ pub const Codec = extern struct {
         /// * `Error.WouldBlock`
         /// * `Error.EndOfFile`
         /// * others are also possible
-        pub fn send_packet(
+        pub fn sendPacket(
             cc: *Context,
             /// The input `Packet`.
             ///
@@ -2666,7 +2666,7 @@ pub const Codec = extern struct {
         /// * `Error.WouldBlock`
         /// * `Error.EndOfFile`
         /// * others are also possible
-        pub fn receive_frame(
+        pub fn receiveFrame(
             avctx: *Context,
             /// This will be set to a reference-counted video or audio frame
             /// (depending on the decoder type) allocated by the codec. Note that
@@ -2691,7 +2691,7 @@ pub const Codec = extern struct {
         /// in a permanent EOF state after draining). This can be desirable if the
         /// cost of tearing down and replacing the encoder instance is high.
         ///
-        pub const flush_buffers = avcodec_flush_buffers;
+        pub const flushBuffers = avcodec_flush_buffers;
         extern fn avcodec_flush_buffers(avctx: *Codec.Context) void;
     };
 
@@ -2715,41 +2715,41 @@ pub const Codec = extern struct {
     extern fn av_codec_iterate(@"opaque": *?*Codec.Iterator) ?*const Codec;
 
     /// Find a registered decoder with a matching codec ID.
-    pub fn find_decoder(id: ID) error{DecoderNotFound}!*const Codec {
+    pub fn findDecoder(id: ID) error{DecoderNotFound}!*const Codec {
         return avcodec_find_decoder(id) orelse error.DecoderNotFound;
     }
     extern fn avcodec_find_decoder(id: Codec.ID) ?*const Codec;
 
     /// Find a registered decoder with the specified name.
-    pub fn find_decoder_by_name(name: [*:0]const u8) error{DecoderNotFound}!*const Codec {
+    pub fn findDecoderByName(name: [*:0]const u8) error{DecoderNotFound}!*const Codec {
         return avcodec_find_decoder_by_name(name) orelse error.DecoderNotFound;
     }
     extern fn avcodec_find_decoder_by_name(name: [*:0]const u8) ?*const Codec;
 
     /// Find a registered encoder with a matching codec ID.
-    pub fn find_encoder(id: ID) error{EncoderNotFound}!*const Codec {
+    pub fn findEncoder(id: ID) error{EncoderNotFound}!*const Codec {
         return avcodec_find_encoder(id) orelse error.EncoderNotFound;
     }
     extern fn avcodec_find_encoder(id: Codec.ID) ?*const Codec;
 
     /// Find a registered encoder with the specified name.
-    pub fn find_encoder_by_name(name: [*:0]const u8) error{EncoderNotFound}!*const Codec {
+    pub fn findEncoderByName(name: [*:0]const u8) error{EncoderNotFound}!*const Codec {
         return avcodec_find_encoder_by_name(name) orelse error.EncoderNotFound;
     }
     extern fn avcodec_find_encoder_by_name(name: [*:0]const u8) ?*const Codec;
 
-    pub fn is_encoder(codec: *const Codec) bool {
+    pub fn isEncoder(codec: *const Codec) bool {
         return av_codec_is_encoder(codec) != 0;
     }
     extern fn av_codec_is_encoder(codec: *const Codec) c_int;
 
-    pub fn is_decoder(codec: *const Codec) bool {
+    pub fn isDecoder(codec: *const Codec) bool {
         return av_codec_is_decoder(codec) != 0;
     }
     extern fn av_codec_is_decoder(codec: *const Codec) c_int;
 
     /// Return a name for the specified profile, if available.
-    pub fn get_profile_name(codec: *const Codec, profile: c_int) error{ProfileNotFound}![*:0]const u8 {
+    pub fn getProfileName(codec: *const Codec, profile: c_int) error{ProfileNotFound}![*:0]const u8 {
         return av_get_profile_name(codec, profile) orelse error.ProfileNotFound;
     }
     extern fn av_get_profile_name(codec: *const Codec, profile: c_int) ?[*:0]const u8;
@@ -2988,7 +2988,7 @@ pub const FilterGraph = extern struct {
     thread_type: c_int,
     nb_threads: c_int,
     @"opaque": ?*anyopaque,
-    execute: ?*const filter_execute_func,
+    execute: ?*const FilterExecuteFn,
     aresample_swr_opts: [*:0]u8,
 
     pub fn alloc() error{OutOfMemory}!*FilterGraph {
@@ -3008,7 +3008,7 @@ pub const FilterGraph = extern struct {
     ///
     /// The filter instance is also retrievable directly through
     /// `FilterGraph.filters` or with `FilterGraph.get_filter`.
-    pub fn alloc_filter(
+    pub fn allocFilter(
         graph: *FilterGraph,
         /// The filter to create an instance of.
         filter: *const Filter,
@@ -3093,7 +3093,7 @@ pub const FilterContext = extern struct {
     /// Asserts:
     /// * a matching named option exists
     /// * the value is valid and in range
-    pub fn opt_set(
+    pub fn optSet(
         fc: *FilterContext,
         name: [*:0]const u8,
         /// If the field being set is not of a string type, then the given
@@ -3109,7 +3109,7 @@ pub const FilterContext = extern struct {
     /// Asserts:
     /// * a matching named option exists
     /// * the value is valid and in range
-    pub fn opt_set_int(fc: *FilterContext, name: [*:0]const u8, val: i64) void {
+    pub fn optSetInt(fc: *FilterContext, name: [*:0]const u8, val: i64) void {
         _ = wrap(av_opt_set_int(fc, name, val, .{ .children = true })) catch unreachable;
     }
     extern fn av_opt_set_int(obj: *anyopaque, name: [*:0]const u8, val: i64, search_flags: SearchFlags) c_int;
@@ -3119,7 +3119,7 @@ pub const FilterContext = extern struct {
     /// Asserts:
     /// * a matching named option exists
     /// * the value is valid and in range
-    pub fn opt_set_double(fc: *FilterContext, name: [*:0]const u8, val: f64) void {
+    pub fn optSetDouble(fc: *FilterContext, name: [*:0]const u8, val: f64) void {
         _ = wrap(av_opt_set_double(fc, name, val, .{ .children = true })) catch unreachable;
     }
     extern fn av_opt_set_double(obj: *anyopaque, name: [*:0]const u8, val: f64, search_flags: SearchFlags) c_int;
@@ -3129,13 +3129,13 @@ pub const FilterContext = extern struct {
     /// Asserts:
     /// * a matching named option exists
     /// * the value is valid and in range
-    pub fn opt_set_q(fc: *FilterContext, name: [*:0]const u8, val: Rational) void {
+    pub fn optSetQ(fc: *FilterContext, name: [*:0]const u8, val: Rational) void {
         _ = wrap(av_opt_set_q(fc, name, val, .{ .children = true })) catch unreachable;
     }
     extern fn av_opt_set_q(obj: *anyopaque, name: [*:0]const u8, val: Rational, search_flags: SearchFlags) c_int;
 
     /// Get a value of the option with the given name.
-    pub fn opt_get_double(fc: *FilterContext, option_name: [*:0]const u8) Error!f64 {
+    pub fn optGetDouble(fc: *FilterContext, option_name: [*:0]const u8) Error!f64 {
         var result: f64 = undefined;
         _ = try wrap(av_opt_get_double(fc, option_name, .{ .children = true }, &result));
         return result;
@@ -3143,7 +3143,7 @@ pub const FilterContext = extern struct {
     extern fn av_opt_get_double(obj: *anyopaque, name: [*:0]const u8, search_flags: SearchFlags, out_val: *f64) c_int;
 
     /// Initialize a filter with the supplied parameters.
-    pub fn init_str(
+    pub fn initStr(
         /// Uninitialized filter context to initialize.
         ctx: *FilterContext,
         /// Options to initialize the filter with. This must be a ':'-separated
@@ -3181,7 +3181,7 @@ pub const FilterContext = extern struct {
     ///
     /// This function is equivalent to `buffersrc_add_frame_flags` with the
     /// AV_BUFFERSRC_FLAG_KEEP_REF flag.
-    pub fn buffersrc_write_frame(
+    pub fn buffersrcWriteFrame(
         /// An instance of the buffersrc filter.
         ctx: *FilterContext,
         /// Frame to be added.
@@ -3202,7 +3202,7 @@ pub const FilterContext = extern struct {
     ///
     /// This function is equivalent to `buffersrc_add_frame_flags` without the
     /// AV_BUFFERSRC_FLAG_KEEP_REF flag.
-    pub fn buffersrc_add_frame(
+    pub fn buffersrcAddFrame(
         /// An instance of the buffersrc filter.
         ctx: *FilterContext,
         /// Frame to be added.
@@ -3221,7 +3221,7 @@ pub const FilterContext = extern struct {
     extern fn av_buffersrc_add_frame(ctx: *FilterContext, frame: ?*Frame) c_int;
 
     /// Get a frame with filtered data from sink and put it in frame.
-    pub fn buffersink_get_frame_flags(
+    pub fn buffersinkGetFrameFlags(
         /// Pointer to a buffersink or abuffersink filter context.
         ctx: *FilterContext,
         /// Pointer to an allocated frame that will be filled with data.
@@ -3242,7 +3242,7 @@ pub const FilterContext = extern struct {
     ///
     /// Warning: do not mix this function with `buffersink_get_frame`. Use only
     /// one or the other with a single sink, not both.
-    pub fn buffersink_get_samples(
+    pub fn buffersinkGetSamples(
         /// Pointer to a context of the abuffersink `Filter`.
         ctx: *FilterContext,
         /// pointer to an allocated frame that will be filled with data.
@@ -3262,12 +3262,12 @@ pub const FilterContext = extern struct {
     /// All calls to `buffersink_get_frame_flags` will return a buffer with
     /// exactly the specified number of samples, or `error.WouldBlock` if there
     /// is not enough. The last buffer at EOF will be padded with 0.
-    pub const buffersink_set_frame_size = av_buffersink_set_frame_size;
+    pub const buffersinkSetFrameSize = av_buffersink_set_frame_size;
     extern fn av_buffersink_set_frame_size(ctx: *FilterContext, frame_size: c_uint) void;
 };
 
-pub const filter_execute_func = fn ([*c]FilterContext, ?*const filter_action_func, ?*anyopaque, [*c]c_int, c_int) callconv(.c) c_int;
-pub const filter_action_func = fn ([*c]FilterContext, ?*anyopaque, c_int, c_int) callconv(.c) c_int;
+pub const FilterExecuteFn = fn ([*c]FilterContext, ?*const FilterActionFn, ?*anyopaque, [*c]c_int, c_int) callconv(.c) c_int;
+pub const FilterActionFn = fn ([*c]FilterContext, ?*anyopaque, c_int, c_int) callconv(.c) c_int;
 pub const FilterLink = extern struct {
     src: [*c]FilterContext,
     srcpad: ?*FilterPad,
@@ -3666,7 +3666,7 @@ pub const sws = struct {
         extern fn sws_scale(c: *sws.Context, srcSlice: [*]const [*]const u8, srcStride: [*]const c_int, srcSliceY: c_int, srcSliceH: c_int, dst: [*]const [*]u8, dstStride: [*]const c_int) c_int;
 
         /// Scale source data from src and write the output to dst.
-        pub fn scale_frame(c: *Context, dst: *Frame, src: *const Frame) Error!void {
+        pub fn scaleFrame(c: *Context, dst: *Frame, src: *const Frame) Error!void {
             _ = try wrap(sws_scale_frame(c, dst, src));
         }
         extern fn sws_scale_frame(c: *sws.Context, dst: *Frame, src: *const Frame) c_int;
