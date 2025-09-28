@@ -1595,7 +1595,7 @@ pub const ChannelLayout = extern struct {
     /// This is a mandatory field.
     order: ChannelOrder,
     /// Number of channels in this layout. Mandatory field.
-    nb_channels: c_int,
+    nb_channels: c_uint,
     /// Details about which channels are present in this layout.
     ///
     /// For `ChannelOrder.UNSPEC`, this field is undefined and must not be
@@ -2942,7 +2942,7 @@ pub const Frame = extern struct {
     width: c_int,
     height: c_int,
     /// Number of audio samples (per channel) described by this frame.
-    nb_samples: c_int,
+    nb_samples: c_uint,
     format: extern union {
         pixel: PixelFormat,
         sample: SampleFormat,
