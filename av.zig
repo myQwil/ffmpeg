@@ -608,7 +608,7 @@ pub const FormatContext = extern struct {
     ///
     /// The codecs are not opened. The stream must be closed with
     /// `close_input`.
-    pub fn openInput(
+    pub fn init(
         /// URL of the stream to open.
         url: [*:0]const u8,
         /// If non-NULL, this parameter forces a specific input format.
@@ -631,7 +631,7 @@ pub const FormatContext = extern struct {
     extern fn avformat_open_input(ps: *?*FormatContext, url: [*:0]const u8, fmt: ?*const InputFormat, options: ?*Dictionary.Mutable) c_int;
 
     /// Close an opened input `FormatContext`. Free it and all its contents.
-    pub fn closeInput(s: *FormatContext) void {
+    pub fn deinit(s: *FormatContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*FormatContext = s;
         avformat_close_input(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
     }
@@ -1220,12 +1220,12 @@ pub const Packet = extern struct {
     opaque_ref: *BufferRef,
     time_base: Rational,
 
-    pub fn alloc() error{OutOfMemory}!*Packet {
+    pub fn init() error{OutOfMemory}!*Packet {
         return av_packet_alloc() orelse return error.OutOfMemory;
     }
     extern fn av_packet_alloc() ?*Packet;
 
-    pub fn free(p: *Packet) void {
+    pub fn deinit(p: *Packet) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Packet = p;
         av_packet_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
     }
@@ -2656,12 +2656,12 @@ pub const Codec = extern struct {
         /// resulting struct should be freed with avcodec_free_context().
         ///
         /// Returns an `AVCodecContext` filled with default values or null on failure.
-        pub fn alloc(codec: *const Codec) error{OutOfMemory}!*Context {
+        pub fn init(codec: *const Codec) error{OutOfMemory}!*Context {
             return avcodec_alloc_context3(codec) orelse return error.OutOfMemory;
         }
         extern fn avcodec_alloc_context3(codec: *const Codec) ?*Codec.Context;
 
-        pub fn free(self: *@This()) void {
+        pub fn deinit(self: *@This()) void {
             var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*@This() = self;
             avcodec_free_context(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
         }
@@ -3001,7 +3001,7 @@ pub const Frame = extern struct {
     /// This only allocates the `Frame` itself, not the data buffers. Those
     /// must be allocated through other means, e.g. with av_frame_get_buffer()
     /// or manually.
-    pub fn alloc() error{OutOfMemory}!*Frame {
+    pub fn init() error{OutOfMemory}!*Frame {
         return av_frame_alloc() orelse error.OutOfMemory;
     }
     extern fn av_frame_alloc() ?*Frame;
@@ -3009,7 +3009,7 @@ pub const Frame = extern struct {
     /// Free the frame and any dynamically allocated objects in it, e.g.
     /// extended_data. If the frame is reference counted, it will be
     /// unreferenced first.
-    pub fn free(frame: *Frame) void {
+    pub fn deinit(frame: *Frame) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Frame = frame;
         av_frame_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
     }
