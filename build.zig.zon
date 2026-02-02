@@ -1,0 +1,15 @@
+.{
+	.name = .ffmpeg,
+	.version = "8.0.1",
+	.fingerprint = 0x2ffce39e93ab4bd6,
+	.minimum_zig_version = "0.16.0-dev.2368+380ea6fb5",
+	.dependencies = .{
+	},
+	.paths = .{
+		"av.zig",
+		"build.zig",
+		"build.zig.zon",
+		"LICENSE",
+		"README.md",
+	},
+}
