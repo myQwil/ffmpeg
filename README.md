@@ -9,7 +9,7 @@ This does not build FFmpeg or implicitly link with any of its libraries. It's ju
 First, update your `build.zig.zon`:
 
 ```
-zig fetch --save git+https://github.com/myQwil/ffmpeg#v7.0.1-8
+zig fetch --save https://github.com/myQwil/ffmpeg/archive/refs/heads/main.tar.gz
 ```
 
 Next, add this snippet to your `build.zig` script:
