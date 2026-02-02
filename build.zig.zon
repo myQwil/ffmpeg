@@ -6,7 +6,7 @@
 	.dependencies = .{
 	},
 	.paths = .{
-		"av.zig",
+		"src",
 		"build.zig",
 		"build.zig.zon",
 		"LICENSE",
