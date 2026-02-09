@@ -745,7 +745,7 @@ pub const FormatContext = extern struct {
         /// Otherwise all timestamps are in units of the stream selected by stream_index
         /// or if stream_index is -1, in AV_TIME_BASE units.
         frame: bool = false,
-        unused: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 4) = 0,
+        unused: @Int(.unsigned, @bitSizeOf(c_int) - 4) = 0,
     };
 
     /// Seek to timestamp ts.
@@ -1152,7 +1152,7 @@ pub const Dictionary = opaque {
         append: bool = false,
         /// Allow to store several equal keys in the dictionary.
         multikey: bool = false,
-        unused: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 7) = 0,
+        unused: @Int(.unsigned, @bitSizeOf(c_int) - 7) = 0,
     };
 
     pub const Entry = extern struct {
@@ -3783,7 +3783,7 @@ pub const sws = struct {
         bitexact: bool = false,
         unused20: u3 = 0,
         error_diffusion: bool = false,
-        unused24: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 24) = 0,
+        unused24: @Int(.unsigned, @bitSizeOf(c_int) - 24) = 0,
     };
 
     pub const Vector = extern struct {
