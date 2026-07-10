@@ -1,14 +1,19 @@
 const std = @import("std");
+const c = @import("cdef");
 const assert = std.debug.assert;
 
+pub const uint = @Int(.unsigned, @bitSizeOf(c_int) - 1);
+pub const int = packed struct(c_int) {
+    u: uint,
+    neg: bool,
+};
+
 pub fn malloc(size: usize) error{OutOfMemory}![]u8 {
-    const ptr = av_malloc(size) orelse return error.OutOfMemory;
+    const ptr = c.av_malloc(size) orelse return error.OutOfMemory;
     return ptr[0..size];
 }
-extern fn av_malloc(size: usize) ?[*]u8;
 
-pub const free = av_free;
-extern fn av_free(ptr: ?*anyopaque) void;
+pub const free = c.av_free;
 
 /// Undefined timestamp value.
 ///
@@ -28,13 +33,12 @@ pub const Log = enum(c_int) {
     trace = 56,
 
     pub fn setLevel(level: Log) void {
-        av_log_set_level(level);
+        c.av_log_set_level(@intFromEnum(level));
     }
-    extern fn av_log_set_level(level: Log) void;
 };
 
 fn wrap(averror: c_int) Error!c_uint {
-    if (averror >= 0) return @intCast(averror);
+    if (averror >= 0) return @bitCast(averror);
     const E = std.posix.E;
     return switch (averror) {
         0 => unreachable, // handled above
@@ -166,10 +170,10 @@ pub const ErrorCode = enum(c_int) {
     http_other_4xx = tag(0xF8, '4', 'X', 'X'),
     http_server_error = tag(0xF8, '5', 'X', 'X'),
 
-    pub fn tag(a: u8, b: u8, c: u8, d: u8) i32 {
+    pub fn tag(a: u8, b: u8, cc: u8, d: u8) i32 {
         const aw: u32 = a;
         const bw: u32 = b;
-        const cw: u32 = c;
+        const cw: u32 = cc;
         const dw: u32 = d;
         const signed: i32 = (aw << 0) | (bw << 8) | (cw << 16) | (dw << 24);
         return -signed;
@@ -596,13 +600,13 @@ pub const FormatContext = extern struct {
     /// `free` can be used to free the context and everything
     /// allocated by the framework within it.
     pub fn alloc() error{OutOfMemory}!*FormatContext {
-        return avformat_alloc_context() orelse return error.OutOfMemory;
+        return if (c.avformat_alloc_context()) |s| @ptrCast(s) else error.OutOfMemory;
     }
-    extern fn avformat_alloc_context() ?*FormatContext;
 
     // Free a `FormatContext` and all its streams.
-    pub const free = avformat_free_context;
-    extern fn avformat_free_context(?*FormatContext) void;
+    pub fn free(s: ?*FormatContext) void {
+        c.avformat_free_context(@ptrCast(s));
+    }
 
     /// Open an input stream and read the header.
     ///
@@ -625,17 +629,15 @@ pub const FormatContext = extern struct {
         var ps: ?*FormatContext = try alloc();
         ps.?.pb = pb;
         // avformat_open_input takes ownership of the allocation.
-        _ = try wrap(avformat_open_input(&ps, url, fmt, options));
+        _ = try wrap(c.avformat_open_input(@ptrCast(&ps), url, @ptrCast(fmt), @ptrCast(options)));
         return ps.?;
     }
-    extern fn avformat_open_input(ps: *?*FormatContext, url: [*:0]const u8, fmt: ?*const InputFormat, options: ?*Dictionary.Mutable) c_int;
 
     /// Close an opened input `FormatContext`. Free it and all its contents.
     pub fn deinit(s: *FormatContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*FormatContext = s;
-        avformat_close_input(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.avformat_close_input(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn avformat_close_input(s: *?*FormatContext) void;
 
     /// Read packets of a media file to get stream information.
     ///
@@ -660,9 +662,8 @@ pub const FormatContext = extern struct {
         /// On return each dictionary will be filled with options that were not found.
         options: ?[*]Dictionary.Mutable,
     ) Error!void {
-        _ = try wrap(avformat_find_stream_info(ic, options));
+        _ = try wrap(c.avformat_find_stream_info(@ptrCast(ic), @ptrCast(options)));
     }
-    extern fn avformat_find_stream_info(ic: *FormatContext, options: ?[*]Dictionary.Mutable) c_int;
 
     /// Find the "best" stream in the file.
     ///
@@ -688,17 +689,10 @@ pub const FormatContext = extern struct {
         related_stream: c_int,
     ) Error!struct { c_uint, *const Codec } {
         var decoder: ?*const Codec = undefined;
-        const n = try wrap(av_find_best_stream(ic, media_type, wanted_stream_nb, related_stream, &decoder, 0));
+        const n = try wrap(c.av_find_best_stream(
+            @ptrCast(ic), @intFromEnum(media_type), wanted_stream_nb, related_stream, @ptrCast(&decoder), 0));
         return .{ n, decoder.? };
     }
-    extern fn av_find_best_stream(
-        ic: *FormatContext,
-        media_type: MediaType,
-        wanted_stream_nb: c_int,
-        related_stream: c_int,
-        decoder_ret: ?*?*const Codec,
-        flags: c_int,
-    ) c_int;
 
     /// Return the next frame of a stream.
     ///
@@ -727,9 +721,8 @@ pub const FormatContext = extern struct {
     /// `pkt` will be initialized, so it may be uninitialized, but it must not
     /// contain data that needs to be freed.
     pub fn readFrame(s: *FormatContext, pkt: *Packet) Error!void {
-        _ = try wrap(av_read_frame(s, pkt));
+        _ = try wrap(c.av_read_frame(@ptrCast(s), @ptrCast(pkt)));
     }
-    extern fn av_read_frame(s: *FormatContext, pkt: *Packet) c_int;
 
     pub const SeekFlags = packed struct(c_int) {
         /// this flag is ignored.
@@ -758,7 +751,8 @@ pub const FormatContext = extern struct {
     pub fn seekFile(
         /// media file handle
         ic: *FormatContext,
-        /// index of the stream which is used as time base reference
+        /// index of the stream which is used as time base reference.
+        /// If `stream_index` is -1, timestamps are in AV_TIME_BASE units
         stream_index: c_int,
         /// smallest acceptable timestamp
         min_ts: i64,
@@ -769,9 +763,8 @@ pub const FormatContext = extern struct {
         /// direction and seeking mode
         flags: SeekFlags,
     ) Error!void {
-        _ = try wrap(avformat_seek_file(ic, stream_index, min_ts, ts, max_ts, @bitCast(flags)));
+        _ = try wrap(c.avformat_seek_file(@ptrCast(ic), stream_index, min_ts, ts, max_ts, @bitCast(flags)));
     }
-    extern fn avformat_seek_file(ic: *FormatContext, stream_index: c_int, min_ts: i64, ts: i64, max_ts: i64, flags: c_int) c_int;
 
     /// Seek to the keyframe at timestamp in the specified stream.
     pub fn seekFrame(
@@ -787,9 +780,8 @@ pub const FormatContext = extern struct {
         /// select direction and seeking mode
         flags: SeekFlags,
     ) Error!void {
-        _ = try wrap(av_seek_frame(s, stream_index, timestamp, @bitCast(flags)));
+        _ = try wrap(c.av_seek_frame(@ptrCast(s), stream_index, timestamp, @bitCast(flags)));
     }
-    extern fn av_seek_frame(s: *FormatContext, stream_index: c_int, timestamp: i64, flags: c_int) c_int;
 
     /// Discard all internally buffered data. This can be useful when dealing with
     /// discontinuities in the byte stream. Generally works only with formats that
@@ -805,15 +797,15 @@ pub const FormatContext = extern struct {
     ///
     /// @return >=0 on success, error code otherwise
     pub fn flush(s: *FormatContext) Error!void {
-        _ = try wrap(avformat_flush(s));
+        _ = try wrap(c.avformat_flush(@ptrCast(s)));
     }
-    extern fn avformat_flush(s: *FormatContext) c_int;
 
     /// Print detailed information about the input or output format, such as
     /// duration, bitrate, streams, container, programs, metadata, side data,
     /// codec and time base.
-    pub const dump = av_dump_format;
-    extern fn av_dump_format(ic: *FormatContext, index: c_uint, url: ?[*:0]const u8, is_output: enum(c_int) { input, output }) void;
+    pub fn dump(ic: *FormatContext, index: c_uint, url: ?[*:0]const u8, is_output: enum(c_int) { input, output }) void {
+        c.av_dump_format(@ptrCast(ic), index, url, is_output);
+    }
 };
 
 pub const Class = extern struct {
@@ -932,31 +924,21 @@ pub const IOContext = extern struct {
         /// A function for seeking to specified byte position.
         seek: ?*const fn (?*anyopaque, i64, Seek) callconv(.c) i64,
     ) error{OutOfMemory}!*IOContext {
-        return avio_alloc_context(
+        return if (c.avio_alloc_context(
             buffer.ptr,
-            @intCast(buffer.len),
-            write_flag,
+            @as(uint, @truncate(buffer.len)),
+            @intFromEnum(write_flag),
             userdata,
             read_packet,
             write_packet,
             seek,
-        ) orelse return error.OutOfMemory;
+        )) |ctx| @ptrCast(ctx) else error.OutOfMemory;
     }
-    extern fn avio_alloc_context(
-        buffer: [*c]u8,
-        buffer_size: c_int,
-        write_flag: IOContext.WriteFlag,
-        @"opaque": ?*anyopaque,
-        read_packet: ?*const fn (?*anyopaque, [*:0]u8, c_int) callconv(.c) c_int,
-        write_packet: ?*const fn (?*anyopaque, [*:0]u8, c_int) callconv(.c) c_int,
-        seek: ?*const fn (?*anyopaque, i64, Seek) callconv(.c) i64,
-    ) [*c]IOContext;
 
     pub fn free(ioc: *IOContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*IOContext = ioc;
-        avio_context_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.avio_context_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn avio_context_free(s: *?*IOContext) void;
 
     /// Close the resource accessed by the IOContext s and free it.
     ///
@@ -965,9 +947,8 @@ pub const IOContext = extern struct {
     /// The internal buffer is automatically flushed before closing the
     /// resource.
     pub fn close(s: *IOContext) Error!void {
-        _ = try wrap(avio_close(s));
+        _ = try wrap(c.avio_close(@ptrCast(s)));
     }
-    extern fn avio_close(s: ?*IOContext) c_int;
 };
 
 pub const Stream = extern struct {
@@ -1028,8 +1009,9 @@ pub const Dictionary = opaque {
         ///
         /// The returned entry key or value must not be changed, or it will
         /// cause undefined behavior.
-        pub const get = av_dict_get;
-        extern fn av_dict_get(m: Dictionary.Const, key: [*:0]const u8, prev: ?*const Dictionary.Entry, flags: Dictionary.Flags) ?*const Dictionary.Entry;
+        pub fn get(m: Dictionary.Const, key: [*:0]const u8, prev: ?*const Dictionary.Entry, flags: Dictionary.Flags) ?*const Dictionary.Entry {
+            return @ptrCast(c.av_dict_get(@ptrCast(m.dict), key, @ptrCast(prev), @bitCast(flags)));
+        }
 
         /// Iterates through all entries in the dictionary.
         ///
@@ -1037,20 +1019,20 @@ pub const Dictionary = opaque {
         ///
         /// As set() invalidates all previous entries returned by this function,
         /// it must not be called while iterating over the dict.
-        pub const iterate = av_dict_iterate;
-        extern fn av_dict_iterate(m: Dictionary.Const, prev: ?*const Dictionary.Entry) ?*const Dictionary.Entry;
+        pub fn iterate(m: Dictionary.Const, prev: ?*const Dictionary.Entry) ?*const Dictionary.Entry {
+            return @ptrCast(c.av_dict_iterate(@ptrCast(m.dict), @ptrCast(prev)));
+        }
 
         /// Get number of entries in dictionary.
-        pub const count = av_dict_count;
-        extern fn av_dict_count(m: Dictionary.Const) c_int;
+        pub fn count(m: Dictionary.Const) c_int {
+            return c.av_dict_count(@ptrCast(m.dict));
+        }
 
         /// Free all the memory allocated for an Dictionary struct and all keys
         /// and values.
         pub fn free(dict: Const) void {
-            var keep_your_dirty_hands_off_my_pointers_ffmpeg = dict;
-            av_dict_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+            c.av_dict_free(@ptrCast(dict.dict));
         }
-        extern fn av_dict_free(pm: *Dictionary.Const) void;
     };
 
     pub const Mutable = extern struct {
@@ -1093,13 +1075,12 @@ pub const Dictionary = opaque {
         /// Adding a new entry to a dictionary invalidates all existing entries
         /// previously returned with get() or iterate().
         pub fn set(dict: *Mutable, key: [*:0]const u8, value: ?[*:0]const u8, flags: Flags) error{OutOfMemory}!void {
-            _ = wrap(av_dict_set(dict, key, value, flags)) catch |err| switch (err) {
+            _ = wrap(c.av_dict_set(@ptrCast(dict), key, value, @bitCast(flags))) catch |err| switch (err) {
                 error.FFmpegInvalid => unreachable, // Zig prevents this by not making `key` nullable.
                 error.OutOfMemory => |e| return e,
                 else => unreachable, // I checked the source code, those are the only possible errors.
             };
         }
-        extern fn av_dict_set(pm: *Dictionary.Mutable, key: [*:0]const u8, value: ?[*:0]const u8, flags: Dictionary.Flags) c_int;
 
         /// Set the given entry in *pm, overwriting an existing entry.
         ///
@@ -1109,21 +1090,19 @@ pub const Dictionary = opaque {
         /// Adding a new entry to a dictionary invalidates all existing entries
         /// previously returned with get() or iterate().
         pub fn setInt(dict: *Mutable, key: [*:0]const u8, value: i64, flags: Flags) error{OutOfMemory}!void {
-            _ = wrap(av_dict_set_int(dict, key, value, flags)) catch |err| switch (err) {
+            _ = wrap(c.av_dict_set_int(@ptrCast(dict), key, value, @bitCast(flags))) catch |err| switch (err) {
                 error.FFmpegInvalid => unreachable, // Zig prevents this by not making `key` nullable.
                 error.OutOfMemory => |e| return e,
                 else => unreachable, // I checked the source code, those are the only possible errors.
             };
         }
-        extern fn av_dict_set_int(pm: *Dictionary.Mutable, key: [*:0]const u8, value: i64, flags: Dictionary.Flags) c_int;
 
         pub fn copy(dst: *Mutable, src: Const, flags: Flags) error{OutOfMemory}!void {
-            _ = wrap(av_dict_copy(dst, src, flags)) catch |err| switch (err) {
+            _ = wrap(c.av_dict_copy(@ptrCast(dst), src, @bitCast(flags))) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 else => unreachable, // I checked the source code, those are the only possible errors.
             };
         }
-        extern fn av_dict_copy(dst: *Dictionary.Mutable, src: Dictionary.Const, flags: Dictionary.Flags) void;
 
         /// Free all the memory allocated for an Dictionary struct and all keys
         /// and values.
@@ -1221,27 +1200,25 @@ pub const Packet = extern struct {
     time_base: Rational,
 
     pub fn init() error{OutOfMemory}!*Packet {
-        return av_packet_alloc() orelse return error.OutOfMemory;
+        return if (c.av_packet_alloc()) |pkt| @ptrCast(pkt) else error.OutOfMemory;
     }
-    extern fn av_packet_alloc() ?*Packet;
 
     pub fn deinit(p: *Packet) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Packet = p;
-        av_packet_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.av_packet_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn av_packet_free(pkt: *?*Packet) void;
 
     pub fn ref(dst: *Packet, src: *const Packet) Error!void {
-        _ = try wrap(av_packet_ref(dst, src));
+        _ = try wrap(c.av_packet_ref(@ptrCast(dst), @ptrCast(src)));
     }
-    extern fn av_packet_ref(dst: *Packet, src: *const Packet) c_int;
 
     /// Wipe the packet.
     ///
     /// Unreference the buffer referenced by the packet and reset the
     /// remaining packet fields to their default values.
-    pub const unref = av_packet_unref;
-    extern fn av_packet_unref(pkt: *Packet) void;
+    pub fn unref(pkt: *Packet) void {
+        c.av_packet_unref(@ptrCast(pkt));
+    }
 };
 
 pub const DeviceInfoList = opaque {};
@@ -1542,21 +1519,22 @@ pub const SampleFormat = enum(c_int) {
     s64p = 11,
 
     /// Return the name of sample_fmt, or NULL if sample_fmt is not recognized.
-    pub const getName = av_get_sample_fmt_name;
-    extern fn av_get_sample_fmt_name(sample_fmt: SampleFormat) ?[*:0]const u8;
+    pub fn getName(sample_fmt: SampleFormat) ?[*:0]const u8 {
+        return c.av_get_sample_fmt_name(@intFromEnum(sample_fmt));
+    }
 
     /// Return number of bytes per sample, or zero if unknown.
-    pub const getBytesPerSample = av_get_bytes_per_sample;
-    extern fn av_get_bytes_per_sample(sample_fmt: SampleFormat) c_int;
+    pub fn getBytesPerSample(sample_fmt: SampleFormat) c_int {
+        return c.av_get_bytes_per_sample(@intFromEnum(sample_fmt));
+    }
 
     /// Check if the sample format is planar.
     ///
     /// @param sample_fmt the sample format to inspect
     /// @return 1 if the sample format is planar, 0 if it is interleaved
     pub fn isPlanar(sample_fmt: SampleFormat) bool {
-        return av_sample_fmt_is_planar(sample_fmt) != 0;
+        return c.av_sample_fmt_is_planar(@intFromEnum(sample_fmt)) != 0;
     }
-    extern fn av_sample_fmt_is_planar(sample_fmt: SampleFormat) c_int;
 };
 
 pub const Profile = extern struct {
@@ -1595,7 +1573,7 @@ pub const ChannelLayout = extern struct {
     /// This is a mandatory field.
     order: ChannelOrder,
     /// Number of channels in this layout. Mandatory field.
-    nb_channels: c_uint,
+    nb_channels: c_int,
     /// Details about which channels are present in this layout.
     ///
     /// For `ChannelOrder.UNSPEC`, this field is undefined and must not be
@@ -1652,18 +1630,18 @@ pub const ChannelLayout = extern struct {
     /// @return 0 if chl and chl1 are equal, 1 if they are not equal. A negative
     ///         AVERROR code if one or both are invalid.
     pub fn compare(a: *const ChannelLayout, b: *const ChannelLayout) bool {
-        return switch (av_channel_layout_compare(a, b)) {
+        return switch (c.av_channel_layout_compare(@ptrCast(a), @ptrCast(b))) {
             0 => true,
             1 => false,
             else => unreachable, // invalid channel layout
         };
     }
-    extern fn av_channel_layout_compare(a: *const ChannelLayout, b: *const ChannelLayout) c_int;
 
     /// Free any allocated data in the channel layout and reset the channel
     /// count to 0.
-    pub const uninit = av_channel_layout_uninit;
-    extern fn av_channel_layout_uninit(channel_layout: *ChannelLayout) void;
+    pub fn uninit(channel_layout: *ChannelLayout) void {
+        c.av_channel_layout_uninit(@ptrCast(channel_layout));
+    }
 
     /// Get a human-readable string describing the channel layout properties.
     ///
@@ -1678,12 +1656,11 @@ pub const ChannelLayout = extern struct {
         /// Pre-allocated buffer where to put the generated string.
         buf: []u8,
     ) [:0]u8 {
-        const rc = av_channel_layout_describe(cl, buf.ptr, buf.len);
-        std.debug.assert(rc >= 0); // invalid channel layout
+        const rc = c.av_channel_layout_describe(@ptrCast(cl), buf.ptr, buf.len);
+        std.debug.assert(rc > 0); // invalid channel layout
         std.debug.assert(rc <= buf.len); // buffer too small
-        return buf[0..@intCast(rc - 1) :0];
+        return buf[0..@as(c_uint, @bitCast(rc - 1)) :0];
     }
-    extern fn av_channel_layout_describe(channel_layout: *const ChannelLayout, buf: [*]u8, buf_size: usize) c_int;
 
     /// Initialize a native channel layout from a bitmask indicating which
     /// channels are present.
@@ -1693,11 +1670,10 @@ pub const ChannelLayout = extern struct {
         /// Bitmask describing the channel layout.
         mask: u64,
     ) error{FFmpegInvalid}!void {
-        if (av_channel_layout_from_mask(channel_layout, mask) != 0) {
+        if (c.av_channel_layout_from_mask(@ptrCast(channel_layout), mask) != 0) {
             return error.FFmpegInvalid;
         }
     }
-    extern fn av_channel_layout_from_mask(channel_layout: *ChannelLayout, mask: u64) c_int;
 
     /// Initialize a native channel layout from a bitmask indicating which
     /// channels are present.
@@ -1712,14 +1688,13 @@ pub const ChannelLayout = extern struct {
         /// The layout structure to be initialized.
         ch_layout: *ChannelLayout,
         /// The number of channels.
-        nb_channels: c_uint,
+        nb_channels: uint,
     ) void {
-        av_channel_layout_default(ch_layout, nb_channels);
+        c.av_channel_layout_default(@ptrCast(ch_layout), nb_channels);
     }
-    extern fn av_channel_layout_default(channel_layout: *ChannelLayout, nb_channels: c_uint) void;
 
     /// Get the default channel layout for a given number of channels.
-    pub fn default(nb_channels: c_uint) ChannelLayout {
+    pub fn default(nb_channels: uint) ChannelLayout {
         var ch_layout: ChannelLayout = undefined;
         ch_layout.setDefault(nb_channels);
         return ch_layout;
@@ -2657,15 +2632,14 @@ pub const Codec = extern struct {
         ///
         /// Returns an `AVCodecContext` filled with default values or null on failure.
         pub fn init(codec: *const Codec) error{OutOfMemory}!*Context {
-            return avcodec_alloc_context3(codec) orelse return error.OutOfMemory;
+            return if (c.avcodec_alloc_context3(@ptrCast(codec))) |ctx| @ptrCast(ctx)
+                else error.OutOfMemory;
         }
-        extern fn avcodec_alloc_context3(codec: *const Codec) ?*Codec.Context;
 
         pub fn deinit(self: *@This()) void {
             var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*@This() = self;
-            avcodec_free_context(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+            c.avcodec_free_context(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
         }
-        extern fn avcodec_free_context(avctx: *?*Codec.Context) void;
 
         /// Fill the codec context based on the values from the supplied codec
         /// parameters.
@@ -2675,9 +2649,8 @@ pub const Codec = extern struct {
         /// par. Fields in codec that do not have a counterpart in par are not
         /// touched.
         pub fn parametersToContext(codec: *Context, par: *const Codec.Parameters) Error!void {
-            _ = try wrap(avcodec_parameters_to_context(codec, par));
+            _ = try wrap(c.avcodec_parameters_to_context(@ptrCast(codec), @ptrCast(par)));
         }
-        extern fn avcodec_parameters_to_context(codec: *Codec.Context, par: *const Codec.Parameters) c_int;
 
         /// Initialize the `AVCodecContext` to use the given `AVCodec`. Prior to using this
         /// function the context has to be allocated with `avcodec_alloc_context3()`.
@@ -2731,9 +2704,8 @@ pub const Codec = extern struct {
             /// options that were not found in the `avctx` codec context.
             options: ?*Dictionary.Mutable,
         ) Error!void {
-            _ = try wrap(avcodec_open2(avctx, codec, options));
+            _ = try wrap(c.avcodec_open2(@ptrCast(avctx), @ptrCast(codec), @ptrCast(options)));
         }
-        extern fn avcodec_open2(avctx: *Codec.Context, codec: ?*const Codec, options: ?*Dictionary.Mutable) c_int;
 
         /// Supply raw packet data as input to a decoder.
         ///
@@ -2780,9 +2752,8 @@ pub const Codec = extern struct {
             /// packet.
             packet: ?*const Packet,
         ) Error!void {
-            _ = try wrap(avcodec_send_packet(cc, packet));
+            _ = try wrap(c.avcodec_send_packet(@ptrCast(cc), @ptrCast(packet)));
         }
-        extern fn avcodec_send_packet(avctx: *Codec.Context, avpkt: ?*const Packet) c_int;
 
         /// Return decoded output data from a decoder or encoder (when the
         /// AV_CODEC_FLAG_RECON_FRAME flag is used).
@@ -2799,9 +2770,8 @@ pub const Codec = extern struct {
             /// else.
             frame: *Frame,
         ) Error!void {
-            _ = try wrap(avcodec_receive_frame(avctx, frame));
+            _ = try wrap(c.avcodec_receive_frame(@ptrCast(avctx), @ptrCast(frame)));
         }
-        extern fn avcodec_receive_frame(avctx: *Codec.Context, frame: *Frame) c_int;
 
         /// Reset the internal codec state / flush internal buffers. Should be called
         /// e.g. when seeking or when switching to a different stream.
@@ -2816,8 +2786,9 @@ pub const Codec = extern struct {
         /// in a permanent EOF state after draining). This can be desirable if the
         /// cost of tearing down and replacing the encoder instance is high.
         ///
-        pub const flushBuffers = avcodec_flush_buffers;
-        extern fn avcodec_flush_buffers(avctx: *Codec.Context) void;
+        pub fn flushBuffers(avctx: *Codec.Context) void {
+            c.avcodec_flush_buffers(@ptrCast(avctx));
+        }
 
         pub fn decodeSubtitle(
             avctx: *Context,
@@ -2825,10 +2796,10 @@ pub const Codec = extern struct {
             avpkt: *Packet
         ) Error!bool {
             var got_sub_ptr: c_int = 0;
-            _ = try wrap(avcodec_decode_subtitle2(avctx, sub, &got_sub_ptr, avpkt));
+            _ = try wrap(
+                c.avcodec_decode_subtitle2(@ptrCast(avctx), @ptrCast(sub), &got_sub_ptr, @ptrCast(avpkt)));
             return (got_sub_ptr != 0);
         }
-        extern fn avcodec_decode_subtitle2(*Codec.Context, *Subtitle, *c_int, *Packet) c_int;
     };
 
     name: [*:0]const u8,
@@ -2847,48 +2818,42 @@ pub const Codec = extern struct {
     ch_layouts: [*]const ChannelLayout,
 
     /// Iterate over all registered codecs.
-    pub const iterate = av_codec_iterate;
-    extern fn av_codec_iterate(@"opaque": *?*Codec.Iterator) ?*const Codec;
+    pub fn iterate(it: *?*Codec.Iterator) ?*const Codec {
+        return @ptrCast(c.av_codec_iterate(@ptrCast(it)));
+    }
 
     /// Find a registered decoder with a matching codec ID.
     pub fn findDecoder(id: ID) error{DecoderNotFound}!*const Codec {
-        return avcodec_find_decoder(id) orelse error.DecoderNotFound;
+        return if (c.avcodec_find_decoder(@intFromEnum(id))) |cd| @ptrCast(cd) else error.DecoderNotFound;
     }
-    extern fn avcodec_find_decoder(id: Codec.ID) ?*const Codec;
 
     /// Find a registered decoder with the specified name.
     pub fn findDecoderByName(name: [*:0]const u8) error{DecoderNotFound}!*const Codec {
-        return avcodec_find_decoder_by_name(name) orelse error.DecoderNotFound;
+        return if (c.avcodec_find_decoder_by_name(name)) |cd| @ptrCast(cd) else error.DecoderNotFound;
     }
-    extern fn avcodec_find_decoder_by_name(name: [*:0]const u8) ?*const Codec;
 
     /// Find a registered encoder with a matching codec ID.
     pub fn findEncoder(id: ID) error{EncoderNotFound}!*const Codec {
-        return avcodec_find_encoder(id) orelse error.EncoderNotFound;
+        return if (c.avcodec_find_encoder(@intFromEnum(id))) |cd| @ptrCast(cd) else error.EncoderNotFound;
     }
-    extern fn avcodec_find_encoder(id: Codec.ID) ?*const Codec;
 
     /// Find a registered encoder with the specified name.
     pub fn findEncoderByName(name: [*:0]const u8) error{EncoderNotFound}!*const Codec {
-        return avcodec_find_encoder_by_name(name) orelse error.EncoderNotFound;
+        return if (c.avcodec_find_encoder_by_name(name)) |cd| @ptrCast(cd) else error.EncoderNotFound;
     }
-    extern fn avcodec_find_encoder_by_name(name: [*:0]const u8) ?*const Codec;
 
     pub fn isEncoder(codec: *const Codec) bool {
-        return av_codec_is_encoder(codec) != 0;
+        return c.av_codec_is_encoder(@ptrCast(codec)) != 0;
     }
-    extern fn av_codec_is_encoder(codec: *const Codec) c_int;
 
     pub fn isDecoder(codec: *const Codec) bool {
-        return av_codec_is_decoder(codec) != 0;
+        return c.av_codec_is_decoder(@ptrCast(codec)) != 0;
     }
-    extern fn av_codec_is_decoder(codec: *const Codec) c_int;
 
     /// Return a name for the specified profile, if available.
     pub fn getProfileName(codec: *const Codec, profile: c_int) error{ProfileNotFound}![*:0]const u8 {
-        return av_get_profile_name(codec, profile) orelse error.ProfileNotFound;
+        return c.av_get_profile_name(@ptrCast(codec), profile) orelse error.ProfileNotFound;
     }
-    extern fn av_get_profile_name(codec: *const Codec, profile: c_int) ?[*:0]const u8;
 };
 
 /// Decoded (raw) audio or video data.
@@ -2942,7 +2907,7 @@ pub const Frame = extern struct {
     width: c_int,
     height: c_int,
     /// Number of audio samples (per channel) described by this frame.
-    nb_samples: c_uint,
+    nb_samples: int,
     format: extern union {
         pixel: PixelFormat,
         sample: SampleFormat,
@@ -3002,18 +2967,16 @@ pub const Frame = extern struct {
     /// must be allocated through other means, e.g. with av_frame_get_buffer()
     /// or manually.
     pub fn init() error{OutOfMemory}!*Frame {
-        return av_frame_alloc() orelse error.OutOfMemory;
+        return if (c.av_frame_alloc()) |frm| @ptrCast(frm) else error.OutOfMemory;
     }
-    extern fn av_frame_alloc() ?*Frame;
 
     /// Free the frame and any dynamically allocated objects in it, e.g.
     /// extended_data. If the frame is reference counted, it will be
     /// unreferenced first.
     pub fn deinit(frame: *Frame) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Frame = frame;
-        av_frame_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.av_frame_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn av_frame_free(frame: *?*Frame) void;
 
     /// Set up a new reference to the data described by the source frame.
     ///
@@ -3027,16 +2990,16 @@ pub const Frame = extern struct {
     /// allocated with `alloc` before calling this function, or undefined
     /// behavior will occur.
     pub fn ref(dst: *Frame, src: *const Frame) error{OutOfMemory}!void {
-        _ = wrap(av_frame_ref(dst, src)) catch |err| switch (err) {
+        _ = wrap(c.av_frame_ref(@ptrCast(dst), @ptrCast(src))) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => unreachable, // I checked the source code, those are the only possible errors.
         };
     }
-    extern fn av_frame_ref(dst: *Frame, src: *const Frame) c_int;
 
     /// Unreference all the buffers referenced by frame and reset the frame fields.
-    pub const unref = av_frame_unref;
-    extern fn av_frame_unref(frame: *Frame) void;
+    pub fn unref(frame: *Frame) void {
+        c.av_frame_unref(@ptrCast(frame));
+    }
 };
 
 pub const PictureType = enum(c_uint) {
@@ -3160,15 +3123,13 @@ pub const FilterGraph = extern struct {
     aresample_swr_opts: [*:0]u8,
 
     pub fn alloc() error{OutOfMemory}!*FilterGraph {
-        return avfilter_graph_alloc() orelse return error.OutOfMemory;
+        return if (c.avfilter_graph_alloc()) |fg| @ptrCast(fg) else error.OutOfMemory;
     }
-    extern fn avfilter_graph_alloc() ?*FilterGraph;
 
     pub fn free(fg: *FilterGraph) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*FilterGraph = fg;
-        avfilter_graph_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.avfilter_graph_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn avfilter_graph_free(graph: *?*FilterGraph) void;
 
     /// Create a new filter instance in a filter graph.
     ///
@@ -3186,15 +3147,14 @@ pub const FilterGraph = extern struct {
         /// parameter. May be `null`.
         name: ?[*:0]const u8,
     ) error{OutOfMemory}!*FilterContext {
-        return avfilter_graph_alloc_filter(graph, filter, name) orelse return error.OutOfMemory;
+        return if (c.avfilter_graph_alloc_filter(@ptrCast(graph), @ptrCast(filter), name)) |fc|
+            @ptrCast(fc) else error.OutOfMemory;
     }
-    extern fn avfilter_graph_alloc_filter(graph: *FilterGraph, filter: *const Filter, name: ?[*:0]const u8) ?*FilterContext;
 
     /// Check validity and configure all the links and formats in the graph.
     pub fn config(graph: *FilterGraph, log_ctx: ?*anyopaque) Error!void {
-        _ = try wrap(avfilter_graph_config(graph, log_ctx));
+        _ = try wrap(c.avfilter_graph_config(@ptrCast(graph), log_ctx));
     }
-    extern fn avfilter_graph_config(graphctx: *FilterGraph, log_ctx: ?*anyopaque) c_int;
 };
 
 /// An instance of a filter.
@@ -3226,6 +3186,8 @@ pub const FilterContext = extern struct {
         fake_obj: bool = false,
         _: u30 = 0,
     };
+
+    const search_children: c_int = @bitCast(SearchFlags{ .children = true });
 
     pub const SinkFlags = packed struct(c_uint) {
         /// Tell `FilterContext.buffersink_get_frame_flags` to read video/samples
@@ -3268,9 +3230,8 @@ pub const FilterContext = extern struct {
         /// string is parsed.
         val: [*:0]const u8,
     ) void {
-        _ = wrap(av_opt_set(fc, name, val, .{ .children = true })) catch unreachable;
+        _ = wrap(c.av_opt_set(fc, name, val, search_children)) catch unreachable;
     }
-    extern fn av_opt_set(obj: *anyopaque, name: [*:0]const u8, val: [*:0]const u8, search_flags: SearchFlags) c_int;
 
     /// Sets the filter context parameter with the given name to an integer value.
     ///
@@ -3278,9 +3239,8 @@ pub const FilterContext = extern struct {
     /// * a matching named option exists
     /// * the value is valid and in range
     pub fn optSetInt(fc: *FilterContext, name: [*:0]const u8, val: i64) void {
-        _ = wrap(av_opt_set_int(fc, name, val, .{ .children = true })) catch unreachable;
+        _ = wrap(c.av_opt_set_int(fc, name, val, search_children)) catch unreachable;
     }
-    extern fn av_opt_set_int(obj: *anyopaque, name: [*:0]const u8, val: i64, search_flags: SearchFlags) c_int;
 
     /// Sets the filter context parameter with the given name to a 64-bit float value.
     ///
@@ -3288,9 +3248,8 @@ pub const FilterContext = extern struct {
     /// * a matching named option exists
     /// * the value is valid and in range
     pub fn optSetDouble(fc: *FilterContext, name: [*:0]const u8, val: f64) void {
-        _ = wrap(av_opt_set_double(fc, name, val, .{ .children = true })) catch unreachable;
+        _ = wrap(c.av_opt_set_double(fc, name, val, search_children)) catch unreachable;
     }
-    extern fn av_opt_set_double(obj: *anyopaque, name: [*:0]const u8, val: f64, search_flags: SearchFlags) c_int;
 
     /// Sets the filter context parameter with the given name to a `Rational` value.
     ///
@@ -3298,17 +3257,15 @@ pub const FilterContext = extern struct {
     /// * a matching named option exists
     /// * the value is valid and in range
     pub fn optSetQ(fc: *FilterContext, name: [*:0]const u8, val: Rational) void {
-        _ = wrap(av_opt_set_q(fc, name, val, .{ .children = true })) catch unreachable;
+        _ = wrap(c.av_opt_set_q(fc, name, val, search_children)) catch unreachable;
     }
-    extern fn av_opt_set_q(obj: *anyopaque, name: [*:0]const u8, val: Rational, search_flags: SearchFlags) c_int;
 
     /// Get a value of the option with the given name.
     pub fn optGetDouble(fc: *FilterContext, option_name: [*:0]const u8) Error!f64 {
         var result: f64 = undefined;
-        _ = try wrap(av_opt_get_double(fc, option_name, .{ .children = true }, &result));
+        _ = try wrap(c.av_opt_get_double(fc, option_name, search_children, &result));
         return result;
     }
-    extern fn av_opt_get_double(obj: *anyopaque, name: [*:0]const u8, search_flags: SearchFlags, out_val: *f64) c_int;
 
     /// Initialize a filter with the supplied parameters.
     pub fn initStr(
@@ -3321,9 +3278,8 @@ pub const FilterContext = extern struct {
         /// `Options` API or there are no options that need to be set.
         args: ?[*:0]const u8,
     ) Error!void {
-        _ = try wrap(avfilter_init_str(ctx, args));
+        _ = try wrap(c.avfilter_init_str(@ptrCast(ctx), args));
     }
-    extern fn avfilter_init_str(ctx: *FilterContext, args: ?[*:0]const u8) c_int;
 
     /// Link two filters together.
     ///
@@ -3338,12 +3294,11 @@ pub const FilterContext = extern struct {
         dst: *FilterContext,
         dst_pad: c_uint,
     ) error{OutOfMemory}!void {
-        _ = wrap(avfilter_link(src, src_pad, dst, dst_pad)) catch |err| switch (err) {
+        _ = wrap(c.avfilter_link(@ptrCast(src), src_pad, @ptrCast(dst), dst_pad)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => unreachable, // I checked the source code, those are the only possible errors.
         };
     }
-    extern fn avfilter_link(src: *FilterContext, srcpad: c_uint, dst: *FilterContext, dstpad: c_uint) c_int;
 
     /// Add a frame to the buffer source.
     ///
@@ -3358,9 +3313,8 @@ pub const FilterContext = extern struct {
         /// reference to it. Otherwise the frame data will be copied.
         frame: *const Frame,
     ) Error!void {
-        _ = try wrap(av_buffersrc_write_frame(ctx, frame));
+        _ = try wrap(c.av_buffersrc_write_frame(@ptrCast(ctx), @ptrCast(frame)));
     }
-    extern fn av_buffersrc_write_frame(ctx: *FilterContext, frame: *const Frame) c_int;
 
     /// Add a frame to the buffer source.
     ///
@@ -3384,9 +3338,8 @@ pub const FilterContext = extern struct {
         /// end of the filter graph.
         frame: ?*Frame,
     ) Error!void {
-        _ = try wrap(av_buffersrc_add_frame(ctx, frame));
+        _ = try wrap(c.av_buffersrc_add_frame(@ptrCast(ctx), @ptrCast(frame)));
     }
-    extern fn av_buffersrc_add_frame(ctx: *FilterContext, frame: ?*Frame) c_int;
 
     /// Get a frame with filtered data from sink and put it in frame.
     pub fn buffersinkGetFrameFlags(
@@ -3398,9 +3351,8 @@ pub const FilterContext = extern struct {
         frame: *Frame,
         flags: SinkFlags,
     ) Error!void {
-        _ = try wrap(av_buffersink_get_frame_flags(ctx, frame, flags));
+        _ = try wrap(c.av_buffersink_get_frame_flags(@ptrCast(ctx), @ptrCast(frame), @bitCast(flags)));
     }
-    extern fn av_buffersink_get_frame_flags(ctx: *FilterContext, frame: *Frame, flags: SinkFlags) c_int;
 
     /// Same as `buffersink_get_frame`, but with the ability to specify the
     /// number of samples read.
@@ -3421,17 +3373,17 @@ pub const FilterContext = extern struct {
         /// the end of stream, when it can contain less than nb_samples.
         nb_samples: c_int,
     ) Error!void {
-        _ = try wrap(av_buffersink_get_samples(ctx, frame, nb_samples));
+        _ = try wrap(c.av_buffersink_get_samples(@ptrCast(ctx), @ptrCast(frame), nb_samples));
     }
-    extern fn av_buffersink_get_samples(ctx: *FilterContext, frame: *Frame, nb_samples: c_int) c_int;
 
     /// Set the frame size for an audio buffer sink.
     ///
     /// All calls to `buffersink_get_frame_flags` will return a buffer with
     /// exactly the specified number of samples, or `error.WouldBlock` if there
     /// is not enough. The last buffer at EOF will be padded with 0.
-    pub const buffersinkSetFrameSize = av_buffersink_set_frame_size;
-    extern fn av_buffersink_set_frame_size(ctx: *FilterContext, frame_size: c_uint) void;
+    pub fn buffersinkSetFrameSize(ctx: *FilterContext, frame_size: c_uint) void {
+        c.av_buffersink_set_frame_size(@ptrCast(ctx), frame_size);
+    }
 };
 
 pub const FilterExecuteFn = fn ([*c]FilterContext, ?*const FilterActionFn, ?*anyopaque, [*c]c_int, c_int) callconv(.c) c_int;
@@ -3496,8 +3448,9 @@ pub const Filter = extern struct {
     ///
     /// Returns the filter definition, if any matching one is registered, or
     /// `null` if none found.
-    pub const get_by_name = avfilter_get_by_name;
-    extern fn avfilter_get_by_name(name: [*:0]const u8) ?*const Filter;
+    pub fn getByName(name: [*:0]const u8) ?*const Filter {
+        return @ptrCast(c.avfilter_get_by_name(name));
+    }
 };
 
 pub const FilterPad = opaque {};
@@ -3510,27 +3463,6 @@ pub const FilterFormatsConfig = extern struct {
 
 pub const FilterFormats = opaque {};
 pub const FilterChannelLayouts = opaque {};
-
-pub const RDFTransformType = enum(c_uint) {
-    dft_r2c = 0,
-    idft_c2r = 1,
-    idft_r2c = 2,
-    dft_c2r = 3,
-};
-
-pub const RDFTContext = opaque {
-    pub fn init(nbits: c_int, trans: RDFTransformType) error{OutOfMemory}!*RDFTContext {
-        return av_rdft_init(nbits, trans) orelse return error.OutOfMemory;
-    }
-    extern fn av_rdft_init(nbits: c_int, trans: RDFTransformType) ?*RDFTContext;
-
-    pub const calc = av_rdft_calc;
-    extern fn av_rdft_calc(s: *RDFTContext, data: [*]FFTSample) void;
-
-    pub const end = av_rdft_end;
-    extern fn av_rdft_end(s: *RDFTContext) void;
-};
-pub const FFTSample = f32;
 
 pub const TXType = enum(c_uint) {
     float_fft = 0,
@@ -3682,7 +3614,7 @@ pub const TXContext = opaque {
         /// whether to do an inverse or a forward transform
         inverse: bool,
         /// len the size of the transform in samples
-        len: c_int,
+        len: uint,
         /// The value to scale the output if supported by type.
         scale: tx_type.ScaleType(),
         flags: TXFlags,
@@ -3697,28 +3629,18 @@ pub const TXContext = opaque {
     } {
         var ctx: ?*TXContext = null;
         var tx: ?*const Fn = null;
-        _ = try wrap(av_tx_init(&ctx, &tx, tx_type, @intFromBool(inverse), len, &scale, flags));
+        _ = try wrap(c.av_tx_init(@ptrCast(&ctx), @ptrCast(&tx), @intFromEnum(tx_type), @intFromBool(inverse), len, &scale, @bitCast(flags)));
         return .{
             .context = ctx.?,
             .tx_fn = tx.?,
             .stride_in_bytes = tx_type.stride(inverse),
         };
     }
-    extern fn av_tx_init(
-        ctx: *?*TXContext,
-        tx: *?*const Fn,
-        @"type": TXType,
-        inv: c_int,
-        len: c_int,
-        scale: ?*const anyopaque,
-        flags: TXFlags,
-    ) c_int;
 
     pub fn uninit(ctx: *TXContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*TXContext = ctx;
-        av_tx_uninit(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.av_tx_uninit(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn av_tx_uninit(ctx: *?*TXContext) void;
 };
 
 pub const ComplexFloat = extern struct {
@@ -3802,81 +3724,75 @@ pub const sws = struct {
         /// Allocate an empty sws.Context. This must be filled and passed to
         /// init().
         pub fn alloc() error{OutOfMemory}!*Context {
-            return sws_alloc_context() orelse error.OutOfMemory;
+            return if (c.sws_alloc_context()) |ctx| @ptrCast(ctx) else error.OutOfMemory;
         }
-        extern fn sws_alloc_context() ?*sws.Context;
 
         /// Initialize the swscaler context sws_context.
         pub fn init(sws_context: *Context, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter) Error!void {
-            _ = try wrap(sws_init_context(sws_context, srcFilter, dstFilter));
+            _ = try wrap(c.sws_init_context(@ptrCast(sws_context), @ptrCast(srcFilter), @ptrCast(dstFilter)));
         }
-        extern fn sws_init_context(sws_context: *sws.Context, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter) c_int;
 
         /// Free the swscaler context swsContext.
-        pub const free = sws_freeContext;
-        extern fn sws_freeContext(swsContext: ?*sws.Context) void;
+        pub fn deinit(ctx: ?*sws.Context) void {
+            c.sws_freeContext(@ptrCast(ctx));
+        }
 
         /// Allocate and return an sws.Context. You need it to perform
         /// scaling/conversion operations using sws.Context.scale().
-        pub fn get(srcW: c_int, srcH: c_int, srcFormat: PixelFormat, dstW: c_int, dstH: c_int, dstFormat: PixelFormat, flags: Flags, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter, param: ?[*]const f64) error{OutOfMemory}!void {
-            return sws_getContext(srcW, srcH, srcFormat, dstW, dstH, dstFormat, flags, srcFilter, dstFilter, param) orelse error.OutOfMemory;
+        pub fn get(
+            srcW: c_int, srcH: c_int, srcFormat: PixelFormat,
+            dstW: c_int, dstH: c_int, dstFormat: PixelFormat,
+            flags: Flags, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter, param: ?[*]const f64) error{OutOfMemory}!void {
+            return c.sws_getContext(
+                srcW, srcH, @intFromEnum(srcFormat),
+                dstW, dstH, @intFromEnum(dstFormat),
+                @bitCast(flags), @ptrCast(srcFilter), @ptrCast(dstFilter), param,
+            ) orelse error.OutOfMemory;
         }
-        extern fn sws_getContext(srcW: c_int, srcH: c_int, srcFormat: PixelFormat, dstW: c_int, dstH: c_int, dstFormat: PixelFormat, flags: sws.Flags, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter, ?[*]const f64) ?*sws.Context;
 
         /// Scale the image slice in srcSlice and put the resulting scaled
         /// slice in the image in dst. A slice is a sequence of consecutive
         /// rows in an image.
         ///
         /// Slices have to be provided in sequential order.
-        pub fn scale(c: *Context, srcSlice: [*]const [*]const u8, srcStride: [*]const c_int, srcSliceY: c_int, srcSliceH: c_int, dst: [*]const [*]u8, dstStride: [*]const c_int) Error!void {
-            _ = try wrap(sws_scale(c, srcSlice, srcStride, srcSliceY, srcSliceH, dst, dstStride));
+        pub fn scale(ctx: *Context, srcSlice: [*]const [*]const u8, srcStride: [*]const c_int, srcSliceY: c_int, srcSliceH: c_int, dst: [*]const [*]u8, dstStride: [*]const c_int) Error!void {
+            _ = try wrap(c.sws_scale(@ptrCast(ctx), srcSlice, srcStride, srcSliceY, srcSliceH, dst, dstStride));
         }
-        extern fn sws_scale(c: *sws.Context, srcSlice: [*]const [*]const u8, srcStride: [*]const c_int, srcSliceY: c_int, srcSliceH: c_int, dst: [*]const [*]u8, dstStride: [*]const c_int) c_int;
 
         /// Scale source data from src and write the output to dst.
-        pub fn scaleFrame(c: *Context, dst: *Frame, src: *const Frame) Error!void {
-            _ = try wrap(sws_scale_frame(c, dst, src));
+        pub fn scaleFrame(ctx: *Context, dst: *Frame, src: *const Frame) Error!void {
+            _ = try wrap(c.sws_scale_frame(@ptrCast(ctx), @ptrCast(dst), @ptrCast(src)));
         }
-        extern fn sws_scale_frame(c: *sws.Context, dst: *Frame, src: *const Frame) c_int;
     };
 };
 
 pub const SwrContext = opaque {
     pub fn alloc() error{OutOfMemory}!*SwrContext {
-        return swr_alloc() orelse return error.OutOfMemory;
+        return if (c.swr_alloc()) |ctx| @ptrCast(ctx) else error.OutOfMemory;
     }
-    extern fn swr_alloc() ?*SwrContext;
 
     pub fn deinit(s: *SwrContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*SwrContext = s;
-        swr_free(&keep_your_dirty_hands_off_my_pointers_ffmpeg);
+        c.swr_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
-    extern fn swr_free(*?*SwrContext) void;
 
     pub fn init(
-        out_ch_layout: *const ChannelLayout, out_sample_fmt: SampleFormat, out_sample_rate: c_uint,
-        in_ch_layout: *const ChannelLayout, in_sample_fmt: SampleFormat, in_sample_rate: c_uint,
+        out_ch_layout: *const ChannelLayout, out_sample_fmt: SampleFormat, out_sample_rate: uint,
+        in_ch_layout: *const ChannelLayout, in_sample_fmt: SampleFormat, in_sample_rate: uint,
         log_offset: c_int, log_ctx: ?*anyopaque,
     ) Error!*SwrContext {
         var ps: ?*SwrContext = try alloc();
-        _ = try wrap(swr_alloc_set_opts2(&ps,
-            out_ch_layout, out_sample_fmt, out_sample_rate,
-            in_ch_layout, in_sample_fmt, in_sample_rate,
+        _ = try wrap(c.swr_alloc_set_opts2(@ptrCast(&ps),
+            @ptrCast(out_ch_layout), @intFromEnum(out_sample_fmt), out_sample_rate,
+            @ptrCast(in_ch_layout), @intFromEnum(in_sample_fmt), in_sample_rate,
             log_offset, log_ctx,
         ));
         const swr = ps.?;
         errdefer swr.deinit();
 
-        _ = try wrap(swr_init(swr));
+        _ = try wrap(c.swr_init(@ptrCast(swr)));
         return swr;
     }
-    extern fn swr_alloc_set_opts2(
-        *?*SwrContext,
-        *const ChannelLayout, SampleFormat, c_uint,
-        *const ChannelLayout, SampleFormat, c_uint,
-        c_int, ?*anyopaque,
-    ) c_int;
-    extern fn swr_init(s: *SwrContext) c_int;
 
 
     /// Convert audio.
@@ -3893,19 +3809,14 @@ pub const SwrContext = opaque {
         /// output buffers, only the first one need be set in case of packed audio
         out: *const [*]u8,
         /// amount of space available for output in samples per channel
-        out_count: c_uint,
+        out_count: uint,
         /// input buffers, only the first one need to be set in case of packed audio.
         ///
         /// set to `null` to flush the last few samples out at the end.
         in: ?*const [*]const u8,
         /// number of input samples available in one channel
-        in_count: c_uint,
+        in_count: uint,
     ) Error!c_uint {
-        return wrap(swr_convert(s, out, out_count, in, in_count));
+        return wrap(c.swr_convert(@ptrCast(s), out, out_count, in, in_count));
     }
-    extern fn swr_convert(
-        *SwrContext,
-        *const [*]u8, c_uint,
-        ?*const [*]const u8, c_uint,
-    ) c_int;
 };
