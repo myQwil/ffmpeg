@@ -612,7 +612,7 @@ pub const FormatContext = extern struct {
     ///
     /// The codecs are not opened. The stream must be closed with
     /// `close_input`.
-    pub fn init(
+    pub fn openInput(
         /// URL of the stream to open.
         url: [*:0]const u8,
         /// If non-NULL, this parameter forces a specific input format.
@@ -634,7 +634,7 @@ pub const FormatContext = extern struct {
     }
 
     /// Close an opened input `FormatContext`. Free it and all its contents.
-    pub fn deinit(s: *FormatContext) void {
+    pub fn closeInput(s: *FormatContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*FormatContext = s;
         c.avformat_close_input(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
@@ -1199,11 +1199,11 @@ pub const Packet = extern struct {
     opaque_ref: *BufferRef,
     time_base: Rational,
 
-    pub fn init() error{OutOfMemory}!*Packet {
+    pub fn create() error{OutOfMemory}!*Packet {
         return if (c.av_packet_alloc()) |pkt| @ptrCast(pkt) else error.OutOfMemory;
     }
 
-    pub fn deinit(p: *Packet) void {
+    pub fn destroy(p: *Packet) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Packet = p;
         c.av_packet_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
@@ -2631,12 +2631,12 @@ pub const Codec = extern struct {
         /// resulting struct should be freed with avcodec_free_context().
         ///
         /// Returns an `AVCodecContext` filled with default values or null on failure.
-        pub fn init(codec: *const Codec) error{OutOfMemory}!*Context {
+        pub fn create(codec: *const Codec) error{OutOfMemory}!*Context {
             return if (c.avcodec_alloc_context3(@ptrCast(codec))) |ctx| @ptrCast(ctx)
                 else error.OutOfMemory;
         }
 
-        pub fn deinit(self: *@This()) void {
+        pub fn destroy(self: *@This()) void {
             var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*@This() = self;
             c.avcodec_free_context(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
         }
@@ -2966,14 +2966,14 @@ pub const Frame = extern struct {
     /// This only allocates the `Frame` itself, not the data buffers. Those
     /// must be allocated through other means, e.g. with av_frame_get_buffer()
     /// or manually.
-    pub fn init() error{OutOfMemory}!*Frame {
+    pub fn create() error{OutOfMemory}!*Frame {
         return if (c.av_frame_alloc()) |frm| @ptrCast(frm) else error.OutOfMemory;
     }
 
     /// Free the frame and any dynamically allocated objects in it, e.g.
     /// extended_data. If the frame is reference counted, it will be
     /// unreferenced first.
-    pub fn deinit(frame: *Frame) void {
+    pub fn destroy(frame: *Frame) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*Frame = frame;
         c.av_frame_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
@@ -3733,7 +3733,7 @@ pub const sws = struct {
         }
 
         /// Free the swscaler context swsContext.
-        pub fn deinit(ctx: ?*sws.Context) void {
+        pub fn destroy(ctx: ?*sws.Context) void {
             c.sws_freeContext(@ptrCast(ctx));
         }
 
@@ -3771,12 +3771,12 @@ pub const SwrContext = opaque {
         return if (c.swr_alloc()) |ctx| @ptrCast(ctx) else error.OutOfMemory;
     }
 
-    pub fn deinit(s: *SwrContext) void {
+    pub fn destroy(s: *SwrContext) void {
         var keep_your_dirty_hands_off_my_pointers_ffmpeg: ?*SwrContext = s;
         c.swr_free(@ptrCast(&keep_your_dirty_hands_off_my_pointers_ffmpeg));
     }
 
-    pub fn init(
+    pub fn create(
         out_ch_layout: *const ChannelLayout, out_sample_fmt: SampleFormat, out_sample_rate: uint,
         in_ch_layout: *const ChannelLayout, in_sample_fmt: SampleFormat, in_sample_rate: uint,
         log_offset: c_int, log_ctx: ?*anyopaque,
@@ -3788,7 +3788,7 @@ pub const SwrContext = opaque {
             log_offset, log_ctx,
         ));
         const swr = ps.?;
-        errdefer swr.deinit();
+        errdefer swr.destroy();
 
         _ = try wrap(c.swr_init(@ptrCast(swr)));
         return swr;
