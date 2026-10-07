@@ -33,7 +33,7 @@ pub const Log = enum(c_int) {
     trace = 56,
 
     pub fn setLevel(level: Log) void {
-        c.av_log_set_level(@intFromEnum(level));
+        c.av_log_set_level(@backingInt(level));
     }
 };
 
@@ -43,40 +43,40 @@ fn wrap(averror: c_int) Error!c_uint {
     return switch (averror) {
         0 => unreachable, // handled above
 
-        -@as(c_int, @intFromEnum(E.INVAL)) => return error.FFmpegInvalid,
-        -@as(c_int, @intFromEnum(E.NOENT)) => return error.FileNotFound,
-        -@as(c_int, @intFromEnum(E.NOMEM)) => return error.OutOfMemory,
-        -@as(c_int, @intFromEnum(E.PERM)) => return error.PermissionDenied,
-        -@as(c_int, @intFromEnum(E.AGAIN)) => return error.WouldBlock,
-        -@as(c_int, @intFromEnum(E.RANGE)) => return error.OutOfRange,
+        -@as(c_int, @backingInt(E.INVAL)) => return error.FFmpegInvalid,
+        -@as(c_int, @backingInt(E.NOENT)) => return error.FileNotFound,
+        -@as(c_int, @backingInt(E.NOMEM)) => return error.OutOfMemory,
+        -@as(c_int, @backingInt(E.PERM)) => return error.PermissionDenied,
+        -@as(c_int, @backingInt(E.AGAIN)) => return error.WouldBlock,
+        -@as(c_int, @backingInt(E.RANGE)) => return error.OutOfRange,
 
-        @intFromEnum(ErrorCode.bsf_not_found) => return error.BsfNotFound,
-        @intFromEnum(ErrorCode.bug) => return error.FFmpegBug,
-        @intFromEnum(ErrorCode.bug2) => return error.FFmpegBug,
-        @intFromEnum(ErrorCode.buffer_too_small) => return error.BufferTooSmall,
-        @intFromEnum(ErrorCode.decoder_not_found) => return error.DecoderNotFound,
-        @intFromEnum(ErrorCode.demuxer_not_found) => return error.DemuxerNotFound,
-        @intFromEnum(ErrorCode.encoder_not_found) => return error.EncoderNotFound,
-        @intFromEnum(ErrorCode.eof) => return error.EndOfFile,
-        @intFromEnum(ErrorCode.exit) => return error.FFmpegExit,
-        @intFromEnum(ErrorCode.external) => return error.FFmpegDependencyFailure,
-        @intFromEnum(ErrorCode.unknown) => return error.FFmpegDependencyFailure,
-        @intFromEnum(ErrorCode.filter_not_found) => return error.FilterNotFound,
-        @intFromEnum(ErrorCode.invaliddata) => return error.InvalidData,
-        @intFromEnum(ErrorCode.muxer_not_found) => return error.MuxerNotFound,
-        @intFromEnum(ErrorCode.option_not_found) => return error.OptionNotFound,
-        @intFromEnum(ErrorCode.patchwelcome) => return error.FFmpegUnimplemented,
-        @intFromEnum(ErrorCode.protocol_not_found) => return error.ProtocolNotFound,
-        @intFromEnum(ErrorCode.stream_not_found) => return error.StreamNotFound,
-        @intFromEnum(ErrorCode.experimental) => return error.FFmpegExperimentalFeature,
-        @intFromEnum(ErrorCode.input_changed) => unreachable, // not legal to use with wrap()
-        @intFromEnum(ErrorCode.output_changed) => unreachable, // not legal to use with wrap()
-        @intFromEnum(ErrorCode.http_bad_request) => return error.HttpBadRequest,
-        @intFromEnum(ErrorCode.http_unauthorized) => return error.HttpUnauthorized,
-        @intFromEnum(ErrorCode.http_forbidden) => return error.HttpForbidden,
-        @intFromEnum(ErrorCode.http_not_found) => return error.HttpNotFound,
-        @intFromEnum(ErrorCode.http_other_4xx) => return error.HttpOther4xx,
-        @intFromEnum(ErrorCode.http_server_error) => return error.Http5xx,
+        @backingInt(ErrorCode.bsf_not_found) => return error.BsfNotFound,
+        @backingInt(ErrorCode.bug) => return error.FFmpegBug,
+        @backingInt(ErrorCode.bug2) => return error.FFmpegBug,
+        @backingInt(ErrorCode.buffer_too_small) => return error.BufferTooSmall,
+        @backingInt(ErrorCode.decoder_not_found) => return error.DecoderNotFound,
+        @backingInt(ErrorCode.demuxer_not_found) => return error.DemuxerNotFound,
+        @backingInt(ErrorCode.encoder_not_found) => return error.EncoderNotFound,
+        @backingInt(ErrorCode.eof) => return error.EndOfFile,
+        @backingInt(ErrorCode.exit) => return error.FFmpegExit,
+        @backingInt(ErrorCode.external) => return error.FFmpegDependencyFailure,
+        @backingInt(ErrorCode.unknown) => return error.FFmpegDependencyFailure,
+        @backingInt(ErrorCode.filter_not_found) => return error.FilterNotFound,
+        @backingInt(ErrorCode.invaliddata) => return error.InvalidData,
+        @backingInt(ErrorCode.muxer_not_found) => return error.MuxerNotFound,
+        @backingInt(ErrorCode.option_not_found) => return error.OptionNotFound,
+        @backingInt(ErrorCode.patchwelcome) => return error.FFmpegUnimplemented,
+        @backingInt(ErrorCode.protocol_not_found) => return error.ProtocolNotFound,
+        @backingInt(ErrorCode.stream_not_found) => return error.StreamNotFound,
+        @backingInt(ErrorCode.experimental) => return error.FFmpegExperimentalFeature,
+        @backingInt(ErrorCode.input_changed) => unreachable, // not legal to use with wrap()
+        @backingInt(ErrorCode.output_changed) => unreachable, // not legal to use with wrap()
+        @backingInt(ErrorCode.http_bad_request) => return error.HttpBadRequest,
+        @backingInt(ErrorCode.http_unauthorized) => return error.HttpUnauthorized,
+        @backingInt(ErrorCode.http_forbidden) => return error.HttpForbidden,
+        @backingInt(ErrorCode.http_not_found) => return error.HttpNotFound,
+        @backingInt(ErrorCode.http_other_4xx) => return error.HttpOther4xx,
+        @backingInt(ErrorCode.http_server_error) => return error.Http5xx,
 
         else => {
             std.log.debug("unexpected ffmpeg error code: {d}", .{averror});
@@ -690,7 +690,7 @@ pub const FormatContext = extern struct {
     ) Error!struct { c_uint, *const Codec } {
         var decoder: ?*const Codec = undefined;
         const n = try wrap(c.av_find_best_stream(
-            @ptrCast(ic), @intFromEnum(media_type), wanted_stream_nb, related_stream, @ptrCast(&decoder), 0));
+            @ptrCast(ic), @backingInt(media_type), wanted_stream_nb, related_stream, @ptrCast(&decoder), 0));
         return .{ n, decoder.? };
     }
 
@@ -927,7 +927,7 @@ pub const IOContext = extern struct {
         return if (c.avio_alloc_context(
             buffer.ptr,
             @as(uint, @truncate(buffer.len)),
-            @intFromEnum(write_flag),
+            @backingInt(write_flag),
             userdata,
             read_packet,
             write_packet,
@@ -1520,12 +1520,12 @@ pub const SampleFormat = enum(c_int) {
 
     /// Return the name of sample_fmt, or NULL if sample_fmt is not recognized.
     pub fn getName(sample_fmt: SampleFormat) ?[*:0]const u8 {
-        return c.av_get_sample_fmt_name(@intFromEnum(sample_fmt));
+        return c.av_get_sample_fmt_name(@backingInt(sample_fmt));
     }
 
     /// Return number of bytes per sample, or zero if unknown.
     pub fn getBytesPerSample(sample_fmt: SampleFormat) c_int {
-        return c.av_get_bytes_per_sample(@intFromEnum(sample_fmt));
+        return c.av_get_bytes_per_sample(@backingInt(sample_fmt));
     }
 
     /// Check if the sample format is planar.
@@ -1533,7 +1533,7 @@ pub const SampleFormat = enum(c_int) {
     /// @param sample_fmt the sample format to inspect
     /// @return 1 if the sample format is planar, 0 if it is interleaved
     pub fn isPlanar(sample_fmt: SampleFormat) bool {
-        return c.av_sample_fmt_is_planar(@intFromEnum(sample_fmt)) != 0;
+        return c.av_sample_fmt_is_planar(@backingInt(sample_fmt)) != 0;
     }
 };
 
@@ -2824,7 +2824,7 @@ pub const Codec = extern struct {
 
     /// Find a registered decoder with a matching codec ID.
     pub fn findDecoder(id: ID) error{DecoderNotFound}!*const Codec {
-        return if (c.avcodec_find_decoder(@intFromEnum(id))) |cd| @ptrCast(cd) else error.DecoderNotFound;
+        return if (c.avcodec_find_decoder(@backingInt(id))) |cd| @ptrCast(cd) else error.DecoderNotFound;
     }
 
     /// Find a registered decoder with the specified name.
@@ -2834,7 +2834,7 @@ pub const Codec = extern struct {
 
     /// Find a registered encoder with a matching codec ID.
     pub fn findEncoder(id: ID) error{EncoderNotFound}!*const Codec {
-        return if (c.avcodec_find_encoder(@intFromEnum(id))) |cd| @ptrCast(cd) else error.EncoderNotFound;
+        return if (c.avcodec_find_encoder(@backingInt(id))) |cd| @ptrCast(cd) else error.EncoderNotFound;
     }
 
     /// Find a registered encoder with the specified name.
@@ -3629,7 +3629,7 @@ pub const TXContext = opaque {
     } {
         var ctx: ?*TXContext = null;
         var tx: ?*const Fn = null;
-        _ = try wrap(c.av_tx_init(@ptrCast(&ctx), @ptrCast(&tx), @intFromEnum(tx_type), @intFromBool(inverse), len, &scale, @bitCast(flags)));
+        _ = try wrap(c.av_tx_init(@ptrCast(&ctx), @ptrCast(&tx), @backingInt(tx_type), @intFromBool(inverse), len, &scale, @bitCast(flags)));
         return .{
             .context = ctx.?,
             .tx_fn = tx.?,
@@ -3744,8 +3744,8 @@ pub const sws = struct {
             dstW: c_int, dstH: c_int, dstFormat: PixelFormat,
             flags: Flags, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter, param: ?[*]const f64) error{OutOfMemory}!void {
             return c.sws_getContext(
-                srcW, srcH, @intFromEnum(srcFormat),
-                dstW, dstH, @intFromEnum(dstFormat),
+                srcW, srcH, @backingInt(srcFormat),
+                dstW, dstH, @backingInt(dstFormat),
                 @bitCast(flags), @ptrCast(srcFilter), @ptrCast(dstFilter), param,
             ) orelse error.OutOfMemory;
         }
@@ -3783,8 +3783,8 @@ pub const SwrContext = opaque {
     ) Error!*SwrContext {
         var ps: ?*SwrContext = try alloc();
         _ = try wrap(c.swr_alloc_set_opts2(@ptrCast(&ps),
-            @ptrCast(out_ch_layout), @intFromEnum(out_sample_fmt), out_sample_rate,
-            @ptrCast(in_ch_layout), @intFromEnum(in_sample_fmt), in_sample_rate,
+            @ptrCast(out_ch_layout), @backingInt(out_sample_fmt), out_sample_rate,
+            @ptrCast(in_ch_layout), @backingInt(in_sample_fmt), in_sample_rate,
             log_offset, log_ctx,
         ));
         const swr = ps.?;
