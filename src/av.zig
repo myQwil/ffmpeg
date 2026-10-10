@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("cdef");
+const c = @import("c");
 const assert = std.debug.assert;
 
 pub const uint = @Int(.unsigned, @bitSizeOf(c_int) - 1);

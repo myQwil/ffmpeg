@@ -2,11 +2,15 @@
 	.name = .ffmpeg,
 	.version = "8.1.2",
 	.fingerprint = 0x2ffce39e93ab4bd6,
-	.minimum_zig_version = "0.16.0",
+	.minimum_zig_version = "0.17.0",
 	.dependencies = .{
-		.av = .{
+		.ffmpeg = .{
 			.url = "git+https://github.com/FFmpeg/FFmpeg#90436de5e10ebeac98a3c5e1fb8b2f509e3f96e5",
 			.hash = "N-V-__8AAB3yZwW62X_Xh0yb54GPrToLj7oGIs6-79UZnCS8",
+		},
+		.translate_c = .{
+			.url = "git+https://codeberg.org/ziglang/translate-c#875969d3493e245e01bf5d7860f792d8f3eb9ef5",
+			.hash = "translate_c-0.0.0-Q_BUWoFOBwAhz77Zd15HCVuhTKzdUKc94kezmCeJ7IC_",
 		},
 	},
 	.paths = .{
