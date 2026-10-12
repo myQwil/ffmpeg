@@ -1,6 +1,8 @@
 const std = @import("std");
-const c = @import("c");
 const assert = std.debug.assert;
+
+const c = @import("c");
+pub const free = c.av_free;
 
 pub const uint = @Int(.unsigned, @bitSizeOf(c_int) - 1);
 pub const int = packed struct(c_int) {
@@ -12,8 +14,6 @@ pub fn malloc(size: usize) error{OutOfMemory}![]u8 {
     const ptr = c.av_malloc(size) orelse return error.OutOfMemory;
     return ptr[0..size];
 }
-
-pub const free = c.av_free;
 
 /// Undefined timestamp value.
 ///
@@ -585,7 +585,9 @@ pub const FormatContext = extern struct {
     /// additional internal format contexts. Thus the AVFormatContext pointer
     /// passed to this callback may be different from the one facing the caller.
     /// It will, however, have the same 'opaque' field.
-    io_open: ?*const fn (*FormatContext, **IOContext, [*]const u8, c_int, *Dictionary.Mutable) callconv(.c) c_int,
+    io_open: ?*const fn (
+        *FormatContext, **IOContext, [*]const u8, c_int, *Dictionary.Mutable,
+    ) callconv(.c) c_int,
     /// A callback for closing the streams opened with AVFormatContext.io_open().
     ///
     /// Using this is preferred over io_close, because this can return an error.
@@ -629,7 +631,8 @@ pub const FormatContext = extern struct {
         var ps: ?*FormatContext = try alloc();
         ps.?.pb = pb;
         // avformat_open_input takes ownership of the allocation.
-        _ = try wrap(c.avformat_open_input(@ptrCast(&ps), url, @ptrCast(fmt), @ptrCast(options)));
+        _ = try wrap(c.avformat_open_input(
+            @ptrCast(&ps), url, @ptrCast(fmt), @ptrCast(options)));
         return ps.?;
     }
 
@@ -689,8 +692,8 @@ pub const FormatContext = extern struct {
         related_stream: c_int,
     ) Error!struct { c_uint, *const Codec } {
         var decoder: ?*const Codec = undefined;
-        const n = try wrap(c.av_find_best_stream(
-            @ptrCast(ic), @backingInt(media_type), wanted_stream_nb, related_stream, @ptrCast(&decoder), 0));
+        const n = try wrap(c.av_find_best_stream(@ptrCast(ic), @backingInt(media_type),
+            wanted_stream_nb, related_stream, @ptrCast(&decoder), 0));
         return .{ n, decoder.? };
     }
 
@@ -763,7 +766,8 @@ pub const FormatContext = extern struct {
         /// direction and seeking mode
         flags: SeekFlags,
     ) Error!void {
-        _ = try wrap(c.avformat_seek_file(@ptrCast(ic), stream_index, min_ts, ts, max_ts, @bitCast(flags)));
+        _ = try wrap(c.avformat_seek_file(
+            @ptrCast(ic), stream_index, min_ts, ts, max_ts, @bitCast(flags)));
     }
 
     /// Seek to the keyframe at timestamp in the specified stream.
@@ -780,7 +784,8 @@ pub const FormatContext = extern struct {
         /// select direction and seeking mode
         flags: SeekFlags,
     ) Error!void {
-        _ = try wrap(c.av_seek_frame(@ptrCast(s), stream_index, timestamp, @bitCast(flags)));
+        _ = try wrap(c.av_seek_frame(
+            @ptrCast(s), stream_index, timestamp, @bitCast(flags)));
     }
 
     /// Discard all internally buffered data. This can be useful when dealing with
@@ -803,7 +808,10 @@ pub const FormatContext = extern struct {
     /// Print detailed information about the input or output format, such as
     /// duration, bitrate, streams, container, programs, metadata, side data,
     /// codec and time base.
-    pub fn dump(ic: *FormatContext, index: c_uint, url: ?[*:0]const u8, is_output: enum(c_int) { input, output }) void {
+    pub fn dump(
+        ic: *FormatContext,
+        index: c_uint, url: ?[*:0]const u8, is_output: enum(c_int) { input, output },
+    ) void {
         c.av_dump_format(@ptrCast(ic), index, url, is_output);
     }
 };
@@ -817,7 +825,9 @@ pub const Class = extern struct {
     parent_log_context_offset: c_int,
     category: ClassCategory,
     get_category: ?*const fn (?*anyopaque) callconv(.c) ClassCategory,
-    query_ranges: ?*const fn ([*c]?*OptionRanges, ?*anyopaque, [*c]const u8, c_int) callconv(.c) c_int,
+    query_ranges: ?*const fn (
+        [*c]?*OptionRanges, ?*anyopaque, [*c]const u8, c_int,
+    ) callconv(.c) c_int,
     child_next: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque,
     child_class_iterate: ?*const fn ([*c]?*anyopaque) callconv(.c) [*c]const Class,
 
@@ -843,7 +853,9 @@ pub const InputFormat = extern struct {
     read_timestamp: ?*const fn ([*c]FormatContext, c_int, [*c]i64, i64) callconv(.c) i64,
     read_play: ?*const fn ([*c]FormatContext) callconv(.c) c_int,
     read_pause: ?*const fn ([*c]FormatContext) callconv(.c) c_int,
-    read_seek2: ?*const fn ([*c]FormatContext, c_int, i64, i64, i64, c_int) callconv(.c) c_int,
+    read_seek2: ?*const fn (
+        [*c]FormatContext, c_int, i64, i64, i64, c_int,
+    ) callconv(.c) c_int,
     get_device_list: ?*const fn ([*c]FormatContext, ?*DeviceInfoList) callconv(.c) c_int,
 };
 
@@ -885,7 +897,9 @@ pub const IOContext = extern struct {
     direct: c_int,
     protocol_whitelist: [*c]const u8,
     protocol_blacklist: [*c]const u8,
-    write_data_type: ?*const fn (?*anyopaque, [*c]const u8, c_int, IODataMarkerType, i64) callconv(.c) c_int,
+    write_data_type: ?*const fn (
+        ?*anyopaque, [*c]const u8, c_int, IODataMarkerType, i64,
+    ) callconv(.c) c_int,
     ignore_boundary_point: c_int,
     buf_ptr_max: [*c]u8,
     bytes_read: i64,
@@ -1009,8 +1023,12 @@ pub const Dictionary = opaque {
         ///
         /// The returned entry key or value must not be changed, or it will
         /// cause undefined behavior.
-        pub fn get(m: Dictionary.Const, key: [*:0]const u8, prev: ?*const Dictionary.Entry, flags: Dictionary.Flags) ?*const Dictionary.Entry {
-            return @ptrCast(c.av_dict_get(@ptrCast(m.dict), key, @ptrCast(prev), @bitCast(flags)));
+        pub fn get(
+            m: Dictionary.Const,
+            key: [*:0]const u8, prev: ?*const Dictionary.Entry, flags: Dictionary.Flags,
+        ) ?*const Dictionary.Entry {
+            return @ptrCast(c.av_dict_get(
+                @ptrCast(m.dict), key, @ptrCast(prev), @bitCast(flags)));
         }
 
         /// Iterates through all entries in the dictionary.
@@ -1019,7 +1037,10 @@ pub const Dictionary = opaque {
         ///
         /// As set() invalidates all previous entries returned by this function,
         /// it must not be called while iterating over the dict.
-        pub fn iterate(m: Dictionary.Const, prev: ?*const Dictionary.Entry) ?*const Dictionary.Entry {
+        pub fn iterate(
+            m: Dictionary.Const,
+            prev: ?*const Dictionary.Entry,
+        ) ?*const Dictionary.Entry {
             return @ptrCast(c.av_dict_iterate(@ptrCast(m.dict), @ptrCast(prev)));
         }
 
@@ -1048,7 +1069,10 @@ pub const Dictionary = opaque {
         ///
         /// The returned entry key or value must not be changed, or it will
         /// cause undefined behavior.
-        pub fn get(dict: Mutable, key: [*:0]const u8, prev: ?*const Entry, flags: Flags) ?*const Entry {
+        pub fn get(
+            dict: Mutable,
+            key: [*:0]const u8, prev: ?*const Entry, flags: Flags,
+        ) ?*const Entry {
             return dict.toConst().get(key, prev, flags);
         }
 
@@ -1074,11 +1098,17 @@ pub const Dictionary = opaque {
         ///
         /// Adding a new entry to a dictionary invalidates all existing entries
         /// previously returned with get() or iterate().
-        pub fn set(dict: *Mutable, key: [*:0]const u8, value: ?[*:0]const u8, flags: Flags) error{OutOfMemory}!void {
-            _ = wrap(c.av_dict_set(@ptrCast(dict), key, value, @bitCast(flags))) catch |err| switch (err) {
-                error.FFmpegInvalid => unreachable, // Zig prevents this by not making `key` nullable.
+        pub fn set(
+            dict: *Mutable,
+            key: [*:0]const u8, value: ?[*:0]const u8, flags: Flags,
+        ) error{OutOfMemory}!void {
+            _ = wrap(c.av_dict_set(@ptrCast(dict), key, value, @bitCast(flags)))
+            catch |err| switch (err) {
+                // Zig prevents this by not making `key` nullable.
+                error.FFmpegInvalid => unreachable,
                 error.OutOfMemory => |e| return e,
-                else => unreachable, // I checked the source code, those are the only possible errors.
+                // I checked the source code, those are the only possible errors.
+                else => unreachable,
             };
         }
 
@@ -1089,18 +1119,25 @@ pub const Dictionary = opaque {
         ///
         /// Adding a new entry to a dictionary invalidates all existing entries
         /// previously returned with get() or iterate().
-        pub fn setInt(dict: *Mutable, key: [*:0]const u8, value: i64, flags: Flags) error{OutOfMemory}!void {
-            _ = wrap(c.av_dict_set_int(@ptrCast(dict), key, value, @bitCast(flags))) catch |err| switch (err) {
-                error.FFmpegInvalid => unreachable, // Zig prevents this by not making `key` nullable.
+        pub fn setInt(
+            dict: *Mutable,
+            key: [*:0]const u8, value: i64, flags: Flags,
+        ) error{OutOfMemory}!void {
+            _ = wrap(c.av_dict_set_int(@ptrCast(dict), key, value, @bitCast(flags)))
+            catch |err| switch (err) {
+                // Zig prevents this by not making `key` nullable.
+                error.FFmpegInvalid => unreachable,
                 error.OutOfMemory => |e| return e,
-                else => unreachable, // I checked the source code, those are the only possible errors.
+                // I checked the source code, those are the only possible errors.
+                else => unreachable,
             };
         }
 
         pub fn copy(dst: *Mutable, src: Const, flags: Flags) error{OutOfMemory}!void {
             _ = wrap(c.av_dict_copy(@ptrCast(dst), src, @bitCast(flags))) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
-                else => unreachable, // I checked the source code, those are the only possible errors.
+                // I checked the source code, those are the only possible errors.
+                else => unreachable,
             };
         }
 
@@ -1111,7 +1148,8 @@ pub const Dictionary = opaque {
         }
     };
 
-    /// Flags that influence behavior of the matching of keys or insertion to the dictionary.
+    /// Flags that influence behavior of the matching of keys
+    /// or insertion to the dictionary.
     pub const Flags = packed struct(c_int) {
         /// Only get an entry with exact-case key match. Only relevant in get().
         match_case: bool = false,
@@ -2509,8 +2547,13 @@ pub const Codec = extern struct {
         refs: c_int,
         has_b_frames: c_int,
         slice_flags: c_int,
-        draw_horiz_band: ?*const fn (s: *Context, src: *const Frame, offset: *[Frame.num_data_pointers]c_int, y: c_int, @"type": c_int, height: c_int) callconv(.c) void,
-        get_format: *const fn (s: *Context, fmt: *const PixelFormat) callconv(.c) PixelFormat,
+        draw_horiz_band: ?*const fn (
+            s: *Context, src: *const Frame, offset: *[Frame.num_data_pointers]c_int,
+            y: c_int, @"type": c_int, height: c_int,
+        ) callconv(.c) void,
+        get_format: *const fn (
+            s: *Context, fmt: *const PixelFormat,
+        ) callconv(.c) PixelFormat,
         max_b_frames: c_int,
         b_quant_factor: f32,
         b_quant_offset: f32,
@@ -2555,7 +2598,9 @@ pub const Codec = extern struct {
         initial_padding: c_int,
         trailing_padding: c_int,
         seek_preroll: c_int,
-        get_buffer2: *const fn (s: *Context, frame: *Frame, flags: c_int) callconv(.c) c_int,
+        get_buffer2: *const fn (
+            s: *Context, frame: *Frame, flags: c_int,
+        ) callconv(.c) c_int,
         bit_rate_tolerance: c_int,
         global_quality: c_int,
         compression_level: c_int,
@@ -2594,8 +2639,17 @@ pub const Codec = extern struct {
         thread_count: c_int,
         thread_type: c_int,
         active_thread_type: c_int,
-        execute: *const fn (c: *Context, *const fn (c2: *Context, arg: [*]u8) callconv(.c) c_int, arg2: [*]u8, ret: ?[*]c_int, count: c_int, size: c_int) callconv(.c) c_int,
-        execute2: *const fn (c: *Context, *const fn (c2: *Context, arg: [*]u8, jobnr: c_int, threadnr: c_int) callconv(.c) c_int, arg2: [*]u8, ret: ?[*]c_int, count: c_int) callconv(.c) c_int,
+        execute: *const fn (
+            c: *Context, *const fn (c2: *Context, arg: [*]u8) callconv(.c) c_int,
+            arg2: [*]u8, ret: ?[*]c_int, count: c_int, size: c_int,
+        ) callconv(.c) c_int,
+        execute2: *const fn (
+            c: *Context,
+            *const fn (
+                c2: *Context, arg: [*]u8, jobnr: c_int, threadnr: c_int
+            ) callconv(.c) c_int,
+            arg2: [*]u8, ret: ?[*]c_int, count: c_int,
+        ) callconv(.c) c_int,
         profile: c_int,
         level: c_int,
         properties: c_uint,
@@ -2620,7 +2674,9 @@ pub const Codec = extern struct {
         apply_cropping: c_int,
         discard_damaged_percentage: c_int,
         max_samples: i64,
-        get_encode_buffer: *const fn (s: *Context, pkt: *Packet, flags: c_int) callconv(.c) c_int,
+        get_encode_buffer: *const fn (
+            s: *Context, pkt: *Packet, flags: c_int,
+        ) callconv(.c) c_int,
         frame_num: i64,
         side_data_prefer_packet: ?[*]c_int,
         nb_side_data_prefer_packet: c_uint,
@@ -2632,8 +2688,10 @@ pub const Codec = extern struct {
         ///
         /// Returns an `AVCodecContext` filled with default values or null on failure.
         pub fn create(codec: *const Codec) error{OutOfMemory}!*Context {
-            return if (c.avcodec_alloc_context3(@ptrCast(codec))) |ctx| @ptrCast(ctx)
-                else error.OutOfMemory;
+            return if (c.avcodec_alloc_context3(@ptrCast(codec))) |ctx|
+                @ptrCast(ctx)
+            else
+                error.OutOfMemory;
         }
 
         pub fn destroy(self: *@This()) void {
@@ -2648,7 +2706,10 @@ pub const Codec = extern struct {
         /// are freed and replaced with duplicates of the corresponding field in
         /// par. Fields in codec that do not have a counterpart in par are not
         /// touched.
-        pub fn parametersToContext(codec: *Context, par: *const Codec.Parameters) Error!void {
+        pub fn parametersToContext(
+            codec: *Context,
+            par: *const Codec.Parameters,
+        ) Error!void {
             _ = try wrap(c.avcodec_parameters_to_context(@ptrCast(codec), @ptrCast(par)));
         }
 
@@ -2704,7 +2765,8 @@ pub const Codec = extern struct {
             /// options that were not found in the `avctx` codec context.
             options: ?*Dictionary.Mutable,
         ) Error!void {
-            _ = try wrap(c.avcodec_open2(@ptrCast(avctx), @ptrCast(codec), @ptrCast(options)));
+            _ = try wrap(c.avcodec_open2(
+                @ptrCast(avctx), @ptrCast(codec), @ptrCast(options)));
         }
 
         /// Supply raw packet data as input to a decoder.
@@ -2790,14 +2852,10 @@ pub const Codec = extern struct {
             c.avcodec_flush_buffers(@ptrCast(avctx));
         }
 
-        pub fn decodeSubtitle(
-            avctx: *Context,
-            sub: *Subtitle,
-            avpkt: *Packet
-        ) Error!bool {
+        pub fn decodeSubtitle(avctx: *Context, sub: *Subtitle, avpkt: *Packet) Error!bool {
             var got_sub_ptr: c_int = 0;
-            _ = try wrap(
-                c.avcodec_decode_subtitle2(@ptrCast(avctx), @ptrCast(sub), &got_sub_ptr, @ptrCast(avpkt)));
+            _ = try wrap(c.avcodec_decode_subtitle2(
+                @ptrCast(avctx), @ptrCast(sub), &got_sub_ptr, @ptrCast(avpkt)));
             return (got_sub_ptr != 0);
         }
     };
@@ -2824,22 +2882,34 @@ pub const Codec = extern struct {
 
     /// Find a registered decoder with a matching codec ID.
     pub fn findDecoder(id: ID) error{DecoderNotFound}!*const Codec {
-        return if (c.avcodec_find_decoder(@backingInt(id))) |cd| @ptrCast(cd) else error.DecoderNotFound;
+        return if (c.avcodec_find_decoder(@backingInt(id))) |cd|
+            @ptrCast(cd)
+        else
+            error.DecoderNotFound;
     }
 
     /// Find a registered decoder with the specified name.
     pub fn findDecoderByName(name: [*:0]const u8) error{DecoderNotFound}!*const Codec {
-        return if (c.avcodec_find_decoder_by_name(name)) |cd| @ptrCast(cd) else error.DecoderNotFound;
+        return if (c.avcodec_find_decoder_by_name(name)) |cd|
+            @ptrCast(cd)
+        else
+            error.DecoderNotFound;
     }
 
     /// Find a registered encoder with a matching codec ID.
     pub fn findEncoder(id: ID) error{EncoderNotFound}!*const Codec {
-        return if (c.avcodec_find_encoder(@backingInt(id))) |cd| @ptrCast(cd) else error.EncoderNotFound;
+        return if (c.avcodec_find_encoder(@backingInt(id))) |cd|
+            @ptrCast(cd)
+        else
+            error.EncoderNotFound;
     }
 
     /// Find a registered encoder with the specified name.
     pub fn findEncoderByName(name: [*:0]const u8) error{EncoderNotFound}!*const Codec {
-        return if (c.avcodec_find_encoder_by_name(name)) |cd| @ptrCast(cd) else error.EncoderNotFound;
+        return if (c.avcodec_find_encoder_by_name(name)) |cd|
+            @ptrCast(cd)
+        else
+            error.EncoderNotFound;
     }
 
     pub fn isEncoder(codec: *const Codec) bool {
@@ -2851,8 +2921,12 @@ pub const Codec = extern struct {
     }
 
     /// Return a name for the specified profile, if available.
-    pub fn getProfileName(codec: *const Codec, profile: c_int) error{ProfileNotFound}![*:0]const u8 {
-        return c.av_get_profile_name(@ptrCast(codec), profile) orelse error.ProfileNotFound;
+    pub fn getProfileName(
+        codec: *const Codec,
+        profile: c_int,
+    ) error{ProfileNotFound}![*:0]const u8 {
+        return c.av_get_profile_name(@ptrCast(codec), profile)
+            orelse error.ProfileNotFound;
     }
 };
 
@@ -2992,7 +3066,8 @@ pub const Frame = extern struct {
     pub fn ref(dst: *Frame, src: *const Frame) error{OutOfMemory}!void {
         _ = wrap(c.av_frame_ref(@ptrCast(dst), @ptrCast(src))) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable, // I checked the source code, those are the only possible errors.
+            // I checked the source code, those are the only possible errors.
+            else => unreachable,
         };
     }
 
@@ -3147,8 +3222,12 @@ pub const FilterGraph = extern struct {
         /// parameter. May be `null`.
         name: ?[*:0]const u8,
     ) error{OutOfMemory}!*FilterContext {
-        return if (c.avfilter_graph_alloc_filter(@ptrCast(graph), @ptrCast(filter), name)) |fc|
-            @ptrCast(fc) else error.OutOfMemory;
+        return if (c.avfilter_graph_alloc_filter(
+            @ptrCast(graph), @ptrCast(filter), name)
+        ) |fc|
+            @ptrCast(fc)
+        else
+            error.OutOfMemory;
     }
 
     /// Check validity and configure all the links and formats in the graph.
@@ -3294,9 +3373,11 @@ pub const FilterContext = extern struct {
         dst: *FilterContext,
         dst_pad: c_uint,
     ) error{OutOfMemory}!void {
-        _ = wrap(c.avfilter_link(@ptrCast(src), src_pad, @ptrCast(dst), dst_pad)) catch |err| switch (err) {
+        _ = wrap(c.avfilter_link(@ptrCast(src), src_pad, @ptrCast(dst), dst_pad))
+        catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable, // I checked the source code, those are the only possible errors.
+            // I checked the source code, those are the only possible errors.
+            else => unreachable,
         };
     }
 
@@ -3351,7 +3432,8 @@ pub const FilterContext = extern struct {
         frame: *Frame,
         flags: SinkFlags,
     ) Error!void {
-        _ = try wrap(c.av_buffersink_get_frame_flags(@ptrCast(ctx), @ptrCast(frame), @bitCast(flags)));
+        _ = try wrap(c.av_buffersink_get_frame_flags(
+            @ptrCast(ctx), @ptrCast(frame), @bitCast(flags)));
     }
 
     /// Same as `buffersink_get_frame`, but with the ability to specify the
@@ -3373,7 +3455,8 @@ pub const FilterContext = extern struct {
         /// the end of stream, when it can contain less than nb_samples.
         nb_samples: c_int,
     ) Error!void {
-        _ = try wrap(c.av_buffersink_get_samples(@ptrCast(ctx), @ptrCast(frame), nb_samples));
+        _ = try wrap(c.av_buffersink_get_samples(
+            @ptrCast(ctx), @ptrCast(frame), nb_samples));
     }
 
     /// Set the frame size for an audio buffer sink.
@@ -3386,8 +3469,14 @@ pub const FilterContext = extern struct {
     }
 };
 
-pub const FilterExecuteFn = fn ([*c]FilterContext, ?*const FilterActionFn, ?*anyopaque, [*c]c_int, c_int) callconv(.c) c_int;
-pub const FilterActionFn = fn ([*c]FilterContext, ?*anyopaque, c_int, c_int) callconv(.c) c_int;
+pub const FilterExecuteFn = fn (
+    [*c]FilterContext, ?*const FilterActionFn, ?*anyopaque, [*c]c_int, c_int,
+) callconv(.c) c_int;
+
+pub const FilterActionFn = fn (
+    [*c]FilterContext, ?*anyopaque, c_int, c_int,
+) callconv(.c) c_int;
+
 pub const FilterLink = extern struct {
     src: [*c]FilterContext,
     srcpad: ?*FilterPad,
@@ -3441,7 +3530,9 @@ pub const Filter = extern struct {
     },
     priv_size: c_int,
     flags_internal: c_int,
-    process_command: ?*const fn ([*c]FilterContext, [*c]const u8, [*c]const u8, [*c]u8, c_int, c_int) callconv(.c) c_int,
+    process_command: ?*const fn (
+        [*c]FilterContext, [*c]const u8, [*c]const u8, [*c]u8, c_int, c_int,
+    ) callconv(.c) c_int,
     activate: ?*const fn ([*c]FilterContext) callconv(.c) c_int,
 
     /// Get a filter definition matching the given name.
@@ -3623,13 +3714,18 @@ pub const TXContext = opaque {
         tx_fn: *const Fn,
         stride_in_bytes: isize,
 
-        pub fn tx(s: @This(), output_array: [*]tx_type.SampleType(), input_array: [*]tx_type.SampleType()) void {
+        pub fn tx(
+            s: @This(),
+            output_array: [*]tx_type.SampleType(),
+            input_array: [*]tx_type.SampleType(),
+        ) void {
             s.tx_fn(s.context, output_array, input_array, s.stride_in_bytes);
         }
     } {
         var ctx: ?*TXContext = null;
         var tx: ?*const Fn = null;
-        _ = try wrap(c.av_tx_init(@ptrCast(&ctx), @ptrCast(&tx), @backingInt(tx_type), @intFromBool(inverse), len, &scale, @bitCast(flags)));
+        _ = try wrap(c.av_tx_init(@ptrCast(&ctx), @ptrCast(&tx), @backingInt(tx_type),
+            @intFromBool(inverse), len, &scale, @bitCast(flags)));
         return .{
             .context = ctx.?,
             .tx_fn = tx.?,
@@ -3728,8 +3824,13 @@ pub const sws = struct {
         }
 
         /// Initialize the swscaler context sws_context.
-        pub fn init(sws_context: *Context, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter) Error!void {
-            _ = try wrap(c.sws_init_context(@ptrCast(sws_context), @ptrCast(srcFilter), @ptrCast(dstFilter)));
+        pub fn init(
+            sws_context: *Context,
+            srcFilter: ?*sws.Filter,
+            dstFilter: ?*sws.Filter,
+        ) Error!void {
+            _ = try wrap(c.sws_init_context(
+                @ptrCast(sws_context), @ptrCast(srcFilter), @ptrCast(dstFilter)));
         }
 
         /// Free the swscaler context swsContext.
@@ -3742,7 +3843,10 @@ pub const sws = struct {
         pub fn get(
             srcW: c_int, srcH: c_int, srcFormat: PixelFormat,
             dstW: c_int, dstH: c_int, dstFormat: PixelFormat,
-            flags: Flags, srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter, param: ?[*]const f64) error{OutOfMemory}!void {
+            flags: Flags,
+            srcFilter: ?*sws.Filter, dstFilter: ?*sws.Filter,
+            param: ?[*]const f64,
+        ) error{OutOfMemory}!void {
             return c.sws_getContext(
                 srcW, srcH, @backingInt(srcFormat),
                 dstW, dstH, @backingInt(dstFormat),
@@ -3755,8 +3859,14 @@ pub const sws = struct {
         /// rows in an image.
         ///
         /// Slices have to be provided in sequential order.
-        pub fn scale(ctx: *Context, srcSlice: [*]const [*]const u8, srcStride: [*]const c_int, srcSliceY: c_int, srcSliceH: c_int, dst: [*]const [*]u8, dstStride: [*]const c_int) Error!void {
-            _ = try wrap(c.sws_scale(@ptrCast(ctx), srcSlice, srcStride, srcSliceY, srcSliceH, dst, dstStride));
+        pub fn scale(
+            ctx: *Context,
+            srcSlice: [*]const [*]const u8, srcStride: [*]const c_int,
+            srcSliceY: c_int, srcSliceH: c_int,
+            dst: [*]const [*]u8, dstStride: [*]const c_int,
+        ) Error!void {
+            _ = try wrap(c.sws_scale(@ptrCast(ctx),
+                srcSlice, srcStride, srcSliceY, srcSliceH, dst, dstStride));
         }
 
         /// Scale source data from src and write the output to dst.
@@ -3777,8 +3887,10 @@ pub const SwrContext = opaque {
     }
 
     pub fn create(
-        out_ch_layout: *const ChannelLayout, out_sample_fmt: SampleFormat, out_sample_rate: uint,
-        in_ch_layout: *const ChannelLayout, in_sample_fmt: SampleFormat, in_sample_rate: uint,
+        out_ch_layout: *const ChannelLayout,
+        out_sample_fmt: SampleFormat, out_sample_rate: uint,
+        in_ch_layout: *const ChannelLayout,
+        in_sample_fmt: SampleFormat, in_sample_rate: uint,
         log_offset: c_int, log_ctx: ?*anyopaque,
     ) Error!*SwrContext {
         var ps: ?*SwrContext = try alloc();
@@ -3793,7 +3905,6 @@ pub const SwrContext = opaque {
         _ = try wrap(c.swr_init(@ptrCast(swr)));
         return swr;
     }
-
 
     /// Convert audio.
     ///
